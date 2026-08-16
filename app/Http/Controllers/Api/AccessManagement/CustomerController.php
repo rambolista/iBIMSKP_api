@@ -55,6 +55,15 @@ class CustomerController extends Controller
         return response()->json($this->serializeCustomer($customer->fresh()), 201);
     }
 
+    public function show(Request $request, Customer $customer): JsonResponse
+    {
+        if (! $this->userHasPermission($request->user(), '/apps/customers', 'can_view')) {
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
+
+        return response()->json($this->serializeCustomer($customer));
+    }
+
     public function update(Request $request, Customer $customer): JsonResponse
     {
         if (! $this->userHasPermission($request->user(), '/apps/customers', 'can_edit')) {

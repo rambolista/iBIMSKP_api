@@ -19,7 +19,25 @@ class Role extends Model
     public function menuPermissions(): BelongsToMany
     {
         return $this->belongsToMany(Menu::class, 'role_menu_permissions', 'role_id', 'menu_id')
-            ->withPivot('can_view', 'can_add', 'can_edit', 'can_delete')
+            ->withPivot(
+                'can_view',
+                'can_add',
+                'can_edit',
+                'can_delete',
+                'can_approve',
+                'can_execute',
+                'can_cancel',
+                'can_reverse',
+                'can_export',
+                'can_print',
+            )
+            ->withTimestamps();
+    }
+
+    public function menuTabPermissions(): BelongsToMany
+    {
+        return $this->belongsToMany(MenuTab::class, 'role_menu_tab_permissions')
+            ->withPivot(...\App\Support\MenuPermissions::ACTIONS)
             ->withTimestamps();
     }
 }

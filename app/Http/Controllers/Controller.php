@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Support\MenuPermissions;
 
 abstract class Controller
 {
@@ -15,18 +16,45 @@ abstract class Controller
         $user->loadMissing('roles');
 
         $permissions = $user->roles->flatMap(function ($role) {
-            return $role->menuPermissions()->get()->map(function ($menu) {
-                return [
+            $tabPermissions = $role->menuTabPermissions()->get()->keyBy('id');
+
+            return $role->menuPermissions()->with('tabs')->get()->map(function ($menu) use ($tabPermissions) {
+                $payload = [
                     'menu_id' => $menu->id,
                     'slug' => $menu->slug,
                     'label' => $menu->label,
                     'url' => $menu->url,
                     'is_title' => (bool) $menu->is_title,
-                    'can_view' => (bool) ($menu->pivot->can_view ?? false),
-                    'can_add' => (bool) ($menu->pivot->can_add ?? false),
-                    'can_edit' => (bool) ($menu->pivot->can_edit ?? false),
-                    'can_delete' => (bool) ($menu->pivot->can_delete ?? false),
+                    'tab_layout' => $menu->tab_layout,
+                    'tabs' => $menu->tabs
+                        ->filter(fn ($tab) => $tab->is_active)
+                        ->map(function ($tab) use ($tabPermissions) {
+                            $payload = [
+                                'tab_id' => $tab->id,
+                                'key' => $tab->key,
+                                'label' => $tab->label,
+                                'icon' => $tab->icon,
+                                'sort_order' => $tab->sort_order,
+                            ];
+                            $pivot = $tabPermissions->get($tab->id)?->pivot;
+
+                            foreach (MenuPermissions::ACTIONS as $action) {
+                                $payload[$action] = $tab->supportsAction($action)
+                                    && (bool) ($pivot->{$action} ?? false);
+                            }
+
+                            return $payload;
+                        })
+                        ->values()
+                        ->all(),
                 ];
+
+                foreach (MenuPermissions::ACTIONS as $action) {
+                    $payload[$action] = $menu->supportsAction($action)
+                        && (bool) ($menu->pivot->{$action} ?? false);
+                }
+
+                return $payload;
             });
         });
 
@@ -38,9 +66,24 @@ abstract class Controller
                 continue;
             }
 
-            foreach (['can_view', 'can_add', 'can_edit', 'can_delete'] as $action) {
+            foreach (MenuPermissions::ACTIONS as $action) {
                 $merged[$menuId][$action] = $merged[$menuId][$action] || $permission[$action];
             }
+
+            $tabs = collect([...$merged[$menuId]['tabs'], ...$permission['tabs']])
+                ->groupBy('tab_id')
+                ->map(function ($entries) {
+                    $first = $entries->first();
+                    foreach (MenuPermissions::ACTIONS as $action) {
+                        $first[$action] = $entries->contains(fn ($entry) => $entry[$action]);
+                    }
+
+                    return $first;
+                })
+                ->sortBy('sort_order')
+                ->values()
+                ->all();
+            $merged[$menuId]['tabs'] = $tabs;
         }
 
         return array_values($merged);

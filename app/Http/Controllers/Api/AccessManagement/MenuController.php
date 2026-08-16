@@ -9,6 +9,8 @@ use App\Notifications\SystemNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
+use App\Support\MenuPermissions;
 
 class MenuController extends Controller
 {
@@ -18,7 +20,7 @@ class MenuController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $allMenus = Menu::orderBy('sort_order')->orderBy('id')->get();
+        $allMenus = Menu::with('tabs')->orderBy('sort_order')->orderBy('id')->get();
 
         if ($request->boolean('all')) {
             if (! $this->userHasPermission($request->user(), '/apps/access-management', 'can_view')) {
@@ -73,9 +75,17 @@ class MenuController extends Controller
             'is_special'  => ['nullable', 'boolean'],
             'badge_text'  => ['nullable', 'string', 'max:30'],
             'badge_class' => ['nullable', 'string', 'max:100'],
+            'tab_layout'  => ['nullable', 'string', 'in:horizontal,vertical'],
+            ...$this->capabilityRules(),
+            ...$this->tabRules(),
         ]);
 
-        $menu = Menu::create($data);
+        $menu = DB::transaction(function () use ($data): Menu {
+            $menu = Menu::create(collect($data)->except('tabs')->all());
+            $this->syncTabs($menu, $data['tabs'] ?? []);
+
+            return $menu->load('tabs');
+        });
         $this->notifyMenuChange($request, $menu, 'created');
 
         return response()->json($menu, 201);
@@ -105,9 +115,18 @@ class MenuController extends Controller
             'is_special'  => ['nullable', 'boolean'],
             'badge_text'  => ['nullable', 'string', 'max:30'],
             'badge_class' => ['nullable', 'string', 'max:100'],
+            'tab_layout'  => ['nullable', 'string', 'in:horizontal,vertical'],
+            ...$this->capabilityRules(),
+            ...$this->tabRules(),
         ]);
 
-        $menu->update($data);
+        DB::transaction(function () use ($menu, $data): void {
+            $menu->update(collect($data)->except('tabs')->all());
+            if (array_key_exists('tabs', $data)) {
+                $this->syncTabs($menu, $data['tabs']);
+            }
+        });
+        $menu->load('tabs');
         $this->notifyMenuChange($request, $menu, 'updated');
 
         return response()->json($menu);
@@ -152,6 +171,58 @@ class MenuController extends Controller
                     metadata: ['menu_id' => $menu->id, 'actor_id' => $actor->id],
                 ));
             });
+    }
+
+    private function capabilityRules(): array
+    {
+        return collect(MenuPermissions::CAPABILITIES)
+            ->mapWithKeys(fn (string $capability) => [$capability => ['nullable', 'boolean']])
+            ->all();
+    }
+
+    private function tabRules(): array
+    {
+        return [
+            'tabs' => ['nullable', 'array'],
+            'tabs.*.key' => ['required', 'string', 'max:80', 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/', 'distinct'],
+            'tabs.*.label' => ['required', 'string', 'max:100'],
+            'tabs.*.icon' => ['nullable', 'string', 'max:60'],
+            'tabs.*.sort_order' => ['nullable', 'integer', 'min:0'],
+            'tabs.*.is_active' => ['nullable', 'boolean'],
+            ...collect(MenuPermissions::CAPABILITIES)
+                ->mapWithKeys(fn (string $capability) => ["tabs.*.{$capability}" => ['nullable', 'boolean']])
+                ->all(),
+        ];
+    }
+
+    private function syncTabs(Menu $menu, array $tabs): void
+    {
+        $retainedIds = [];
+
+        foreach (array_values($tabs) as $index => $tabData) {
+            $tab = $menu->tabs()->updateOrCreate(
+                ['key' => $tabData['key']],
+                [
+                    'label' => $tabData['label'],
+                    'icon' => $tabData['icon'] ?? null,
+                    'sort_order' => $tabData['sort_order'] ?? $index,
+                    'is_active' => $tabData['is_active'] ?? true,
+                    ...collect(MenuPermissions::CAPABILITIES)
+                        ->mapWithKeys(fn (string $capability) => [
+                            $capability => (bool) ($tabData[$capability] ?? in_array($capability, [
+                                'supports_view',
+                                'supports_add',
+                                'supports_edit',
+                                'supports_delete',
+                            ], true)),
+                        ])
+                        ->all(),
+                ],
+            );
+            $retainedIds[] = $tab->id;
+        }
+
+        $menu->tabs()->whereNotIn('id', $retainedIds)->delete();
     }
 
 }
