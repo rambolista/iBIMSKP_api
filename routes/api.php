@@ -1,11 +1,12 @@
 <?php
 
-use App\Http\Controllers\Api\AccessManagement\MenuController;
-use App\Http\Controllers\Api\AccessManagement\MenuIconController;
 use App\Http\Controllers\Api\AccessManagement\CustomerController;
 use App\Http\Controllers\Api\AccessManagement\CustomerMenuController;
+use App\Http\Controllers\Api\AccessManagement\MenuController;
+use App\Http\Controllers\Api\AccessManagement\MenuIconController;
 use App\Http\Controllers\Api\AccessManagement\RoleController;
 use App\Http\Controllers\Api\AccessManagement\UserController;
+use App\Http\Controllers\Api\AuditHistoryController;
 use App\Http\Controllers\Api\Auth\ChangePasswordController;
 use App\Http\Controllers\Api\Auth\DeleteAccountController;
 use App\Http\Controllers\Api\Auth\ForgotPasswordController;
@@ -18,12 +19,16 @@ use App\Http\Controllers\Api\Auth\TwoFactorChallengeController;
 use App\Http\Controllers\Api\Auth\TwoFactorSettingsController;
 use App\Http\Controllers\Api\Auth\UnlockController;
 use App\Http\Controllers\Api\Auth\UserController as AuthUserController;
+use App\Http\Controllers\Api\BarangayId\BarangayIdController;
+use App\Http\Controllers\Api\BarangayServices\DocumentTemplateController;
+use App\Http\Controllers\Api\BarangayServices\ServiceRequestController;
+use App\Http\Controllers\Api\BarangayServices\ServiceTypeController;
 use App\Http\Controllers\Api\CustomerAuth\ForgotPasswordController as CustomerForgotPasswordController;
 use App\Http\Controllers\Api\CustomerAuth\LoginController as CustomerLoginController;
-use App\Http\Controllers\Api\CustomerAuth\TwoFactorChallengeController as CustomerTwoFactorChallengeController;
-use App\Http\Controllers\Api\CustomerAuth\TwoFactorSettingsController as CustomerTwoFactorSettingsController;
 use App\Http\Controllers\Api\CustomerAuth\RegisterController as CustomerRegisterController;
 use App\Http\Controllers\Api\CustomerAuth\ResetPasswordController as CustomerResetPasswordController;
+use App\Http\Controllers\Api\CustomerAuth\TwoFactorChallengeController as CustomerTwoFactorChallengeController;
+use App\Http\Controllers\Api\CustomerAuth\TwoFactorSettingsController as CustomerTwoFactorSettingsController;
 use App\Http\Controllers\Api\CustomerProfileController;
 use App\Http\Controllers\Api\LandingPageController;
 use App\Http\Controllers\Api\LandingPageSectionController;
@@ -32,6 +37,9 @@ use App\Http\Controllers\Api\LayoutSettingController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\ProjectSettingController;
 use App\Http\Controllers\Api\PublicLandingPageController;
+use App\Http\Controllers\Api\ResidentManagement\HouseholdController;
+use App\Http\Controllers\Api\ResidentManagement\PurokController;
+use App\Http\Controllers\Api\ResidentManagement\ResidentController;
 use App\Http\Controllers\Api\ThemePreferenceController;
 use App\Http\Controllers\Api\UserProfileController;
 use Illuminate\Support\Facades\Route;
@@ -56,6 +64,7 @@ Route::prefix('customer')->group(function () {
 Route::get('/project-settings', [ProjectSettingController::class, 'show']);
 Route::get('/layout-settings', [LayoutSettingController::class, 'show']);
 Route::get('/landing-page', [PublicLandingPageController::class, 'show']);
+Route::get('/service-request-verification/{verificationCode}', [ServiceRequestController::class, 'verifyDocument']);
 
 // ── Protected routes (valid Sanctum token required) ────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
@@ -146,4 +155,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/users/{user}/roles', [UserController::class, 'assignRoles']);
         Route::apiResource('/users', UserController::class);
     });
+
+    Route::apiResource('/residents/households', HouseholdController::class)->parameters(['households' => 'household']);
+    Route::apiResource('/residents/puroks', PurokController::class)->parameters(['puroks' => 'purok']);
+    Route::get('/residents/duplicates', [ResidentController::class, 'duplicates']);
+    Route::apiResource('/residents', ResidentController::class);
+
+    Route::apiResource('/barangay-services/requests', ServiceRequestController::class)->parameters(['requests' => 'serviceRequest']);
+    Route::get('/barangay-services/requests/{serviceRequest}/document-preview', [ServiceRequestController::class, 'documentPreview']);
+    Route::apiResource('/barangay-services/types', ServiceTypeController::class)->parameters(['types' => 'serviceType']);
+    Route::apiResource('/barangay-services/document-templates', DocumentTemplateController::class)->parameters(['document-templates' => 'documentTemplate']);
+    Route::apiResource('/barangay-id', BarangayIdController::class)->parameters(['barangay-id' => 'barangayId']);
+    Route::get('/audit-history/{resource}/{recordId}', [AuditHistoryController::class, 'index']);
 });

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\AccessManagement;
 
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
 use App\Models\Customer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -51,8 +52,13 @@ class CustomerController extends Controller
         if ($request->hasFile('avatar')) {
             $customer->replaceAvatar($request->file('avatar'));
         }
+        $customer = $customer->fresh();
+        AuditLog::recordCreated($request->user(), $customer, [
+            ...array_keys($customer->getAttributes()),
+            ...($request->hasFile('avatar') ? ['avatar_path'] : []),
+        ]);
 
-        return response()->json($this->serializeCustomer($customer->fresh()), 201);
+        return response()->json($this->serializeCustomer($customer), 201);
     }
 
     public function show(Request $request, Customer $customer): JsonResponse
@@ -72,6 +78,7 @@ class CustomerController extends Controller
 
         $data = $this->validatePayload($request, $customer, true);
         $updatePayload = [];
+        $before = $customer->getAttributes();
 
         if (array_key_exists('account_number', $data) && filled($data['account_number'])) {
             $updatePayload['account_number'] = trim((string) $data['account_number']);
@@ -125,8 +132,14 @@ class CustomerController extends Controller
         } elseif ($this->normalizeBoolean($request->input('clear_avatar'))) {
             $customer->clearAvatar();
         }
+        $customer = $customer->fresh();
+        AuditLog::recordUpdated($request->user(), $customer, $before, [
+            ...array_keys($updatePayload),
+            ...($request->hasFile('avatar') ? ['avatar_path'] : []),
+            ...($this->normalizeBoolean($request->input('clear_avatar')) ? ['avatar_path'] : []),
+        ]);
 
-        return response()->json($this->serializeCustomer($customer->fresh()));
+        return response()->json($this->serializeCustomer($customer));
     }
 
     public function destroy(Request $request, Customer $customer): JsonResponse
@@ -139,6 +152,7 @@ class CustomerController extends Controller
             Storage::disk('public')->delete($customer->avatar_path);
         }
 
+        AuditLog::recordDeleted($request->user(), $customer, $customer->getAttributes(), array_keys($customer->getAttributes()));
         $customer->delete();
 
         return response()->json(['message' => 'Customer deleted.']);
@@ -154,11 +168,11 @@ class CustomerController extends Controller
         );
 
         $rules = [
-            'account_number' => ['nullable', 'string', 'max:50', 'unique:customers,account_number' . ($customer ? ',' . $customer->id : '')],
+            'account_number' => ['nullable', 'string', 'max:50', 'unique:customers,account_number'.($customer ? ','.$customer->id : '')],
             'first_name' => ['required', 'string', 'max:255'],
             'middle_name' => ['nullable', 'string', 'max:255'],
             'last_name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'unique:customers,email' . ($customer ? ',' . $customer->id : '')],
+            'email' => ['required', 'email', 'unique:customers,email'.($customer ? ','.$customer->id : '')],
             'mobile_number' => ['nullable', 'string', 'max:50'],
             'address' => ['nullable', 'string', 'max:1000'],
             'avatar' => ['nullable', 'image', 'max:5120'],
