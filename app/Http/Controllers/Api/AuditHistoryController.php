@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\BarangayId;
+use App\Models\Blotter;
 use App\Models\Customer;
 use App\Models\DocumentTemplate;
 use App\Models\Household;
@@ -25,6 +26,7 @@ class AuditHistoryController extends Controller
         'serviceRequests' => ['model' => ServiceRequest::class, 'menu' => '/barangay-services/requests'],
         'serviceTypes' => ['model' => ServiceType::class, 'menu' => '/barangay-services/types'],
         'barangayIds' => ['model' => BarangayId::class, 'menu' => '/barangay-id'],
+        'blotters' => ['model' => Blotter::class, 'menu' => '/blotter'],
         'documentTemplates' => ['model' => DocumentTemplate::class, 'menu' => '/barangay-services/document-templates'],
         'customers' => ['model' => Customer::class, 'menu' => '/apps/customers'],
     ];

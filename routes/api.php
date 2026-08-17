@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\Auth\TwoFactorSettingsController;
 use App\Http\Controllers\Api\Auth\UnlockController;
 use App\Http\Controllers\Api\Auth\UserController as AuthUserController;
 use App\Http\Controllers\Api\BarangayId\BarangayIdController;
+use App\Http\Controllers\Api\Blotter\BlotterController;
 use App\Http\Controllers\Api\BarangayServices\DocumentTemplateController;
 use App\Http\Controllers\Api\BarangayServices\ServiceRequestController;
 use App\Http\Controllers\Api\BarangayServices\ServiceTypeController;
@@ -166,5 +167,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('/barangay-services/types', ServiceTypeController::class)->parameters(['types' => 'serviceType']);
     Route::apiResource('/barangay-services/document-templates', DocumentTemplateController::class)->parameters(['document-templates' => 'documentTemplate']);
     Route::apiResource('/barangay-id', BarangayIdController::class)->parameters(['barangay-id' => 'barangayId']);
+    Route::apiResource('/blotter', BlotterController::class)->parameters(['blotter' => 'blotter']);
     Route::get('/audit-history/{resource}/{recordId}', [AuditHistoryController::class, 'index']);
 });
