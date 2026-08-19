@@ -88,6 +88,8 @@ class HouseholdController extends Controller
             'house_number' => ['nullable', 'string', 'max:100'],
             'street' => ['nullable', 'string', 'max:150'],
             'address' => ['nullable', 'string', 'max:500'],
+            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'monthly_income' => ['nullable', 'numeric', 'min:0'],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
         ]);

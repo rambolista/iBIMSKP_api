@@ -108,7 +108,7 @@ class ResidentController extends Controller
 
     private function loadResident(Resident $resident): Resident
     {
-        return $resident->load(['purok:id,code,name', 'household:id,household_number,name,purok_id,house_number,street,address']);
+        return $resident->load(['purok:id,code,name', 'household:id,household_number,name,purok_id,house_number,street,address,latitude,longitude']);
     }
 
     private function validated(Request $request, ?Resident $resident = null): array

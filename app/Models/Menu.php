@@ -18,6 +18,7 @@ class Menu extends Model
         'sort_order',
         'is_title',
         'is_active',
+        'is_hidden',
         'is_disabled',
         'is_special',
         'badge_text',
@@ -38,6 +39,7 @@ class Menu extends Model
     protected $casts = [
         'is_title'   => 'boolean',
         'is_active'  => 'boolean',
+        'is_hidden' => 'boolean',
         'is_disabled' => 'boolean',
         'is_special' => 'boolean',
         'sort_order' => 'integer',

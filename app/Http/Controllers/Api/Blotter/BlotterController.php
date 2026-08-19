@@ -17,10 +17,16 @@ class BlotterController extends Controller
     {
         $this->authorizeAction($request, 'can_view');
 
+        $validated = $request->validate([
+            'resident_id' => ['nullable', 'integer'],
+            'status' => ['nullable', Rule::in(['open', 'under_mediation', 'resolved', 'dismissed'])],
+        ]);
+
         return response()->json(
             Blotter::query()
                 ->with('resident:id,resident_number,first_name,middle_name,last_name,suffix')
-                ->when($request->integer('resident_id'), fn ($query, $residentId) => $query->where('resident_id', $residentId))
+                ->when(isset($validated['resident_id']), fn ($query) => $query->where('resident_id', $validated['resident_id']))
+                ->when(! empty($validated['status']), fn ($query) => $query->where('status', $validated['status']))
                 ->orderByDesc('incident_date')
                 ->orderByDesc('id')
                 ->get()
@@ -32,10 +38,14 @@ class BlotterController extends Controller
         $this->authorizeAction($request, 'can_add');
 
         $data = $this->validated($request);
+        unset($data['evidence_images']);
         $blotter = Blotter::create($data);
+        if ($request->hasFile('evidence_images')) {
+            $blotter->replaceEvidencePhotos($request->file('evidence_images'));
+        }
         AuditLog::recordCreated($request->user(), $blotter, array_keys($data));
 
-        return response()->json($this->loadBlotter($blotter), 201);
+        return response()->json($this->loadBlotter($blotter->fresh()), 201);
     }
 
     public function show(Request $request, Blotter $blotter): JsonResponse
@@ -51,8 +61,20 @@ class BlotterController extends Controller
 
         $before = $blotter->getAttributes();
         $data = $this->validated($request, $blotter);
+        unset($data['evidence_images']);
         $blotter->update($data);
-        AuditLog::recordUpdated($request->user(), $blotter->fresh(), $before, array_keys($data));
+        if ($request->hasFile('evidence_images')) {
+            $blotter->replaceEvidencePhotos($request->file('evidence_images'));
+        }
+        AuditLog::recordUpdated(
+            $request->user(),
+            $blotter->fresh(),
+            $before,
+            [
+                ...array_keys($data),
+                ...($request->hasFile('evidence_images') ? ['evidence_paths'] : []),
+            ]
+        );
 
         return response()->json($this->loadBlotter($blotter->fresh()));
     }
@@ -74,7 +96,12 @@ class BlotterController extends Controller
 
     private function loadBlotter(Blotter $blotter): Blotter
     {
-        return $blotter->load('resident');
+        return $blotter->load([
+            'resident',
+            'relatedCases:id,case_number,date_filed,complainant_resident_id,complainant_name,respondent_resident_id,respondent_name,nature,status,next_hearing_at,related_blotter_id',
+            'relatedCases.complainantResident:id,resident_number,first_name,middle_name,last_name,suffix',
+            'relatedCases.respondentResident:id,resident_number,first_name,middle_name,last_name,suffix',
+        ]);
     }
 
     private function validated(Request $request, ?Blotter $blotter = null): array
@@ -82,13 +109,15 @@ class BlotterController extends Controller
         return $request->validate([
             'blotter_number' => ['required', 'string', 'max:30', Rule::unique('blotters', 'blotter_number')->ignore($blotter)],
             'incident_date' => ['required', 'date'],
-            'incident_time' => ['nullable', 'string', 'max:30'],
+            'incident_time' => ['nullable', 'date_format:H:i'],
             'resident_id' => ['nullable', 'integer', Rule::exists('residents', 'id')->where('status', 'active')],
             'complainant_name' => ['nullable', 'string', 'max:255'],
             'respondent_name' => ['required', 'string', 'max:255'],
             'location' => ['required', 'string', 'max:255'],
             'narrative' => ['required', 'string'],
             'action_taken' => ['nullable', 'string'],
+            'evidence_images' => ['nullable', 'array'],
+            'evidence_images.*' => ['image', 'max:5120'],
             'settled_at' => ['nullable', 'date', 'after_or_equal:incident_date'],
             'status' => ['nullable', Rule::in(['open', 'under_mediation', 'resolved', 'dismissed'])],
             'remarks' => ['nullable', 'string'],

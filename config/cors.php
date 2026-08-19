@@ -1,5 +1,16 @@
 <?php
 
+$allowedOrigins = array_values(array_unique(array_filter([
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://ibimskp.test',
+    env('FRONTEND_URL'),
+    ...array_map(
+        static fn (string $origin): string => trim($origin),
+        explode(',', (string) env('CORS_ALLOWED_ORIGINS', ''))
+    ),
+])));
+
 return [
 
     /*
@@ -19,14 +30,13 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => [
-        'http://localhost:5173',
-        'http://127.0.0.1:5173',
-        'http://biwas_starter.test',
-        'https://biwas.byeitsolutions.com',
-    ],
+    'allowed_origins' => $allowedOrigins,
 
-    'allowed_origins_patterns' => [],
+    'allowed_origins_patterns' => [
+        '^https:\/\/[a-z0-9-]+\.ngrok-free\.app$',
+        '^https:\/\/[a-z0-9-]+\.ngrok\.app$',
+        '^https:\/\/[a-z0-9-]+\.ngrok\.dev$',
+    ],
 
     'allowed_headers' => ['*'],
 

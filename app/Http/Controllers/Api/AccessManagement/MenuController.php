@@ -20,15 +20,17 @@ class MenuController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $allMenus = Menu::with('tabs')->orderBy('sort_order')->orderBy('id')->get();
+        $query = Menu::with('tabs')->orderBy('sort_order')->orderBy('id');
 
         if ($request->boolean('all')) {
             if (! $this->userHasPermission($request->user(), '/apps/access-management', 'can_view')) {
                 return response()->json(['message' => 'Forbidden.'], 403);
             }
 
-            return response()->json($allMenus);
+            return response()->json($query->where('is_hidden', false)->get());
         }
+
+        $allMenus = $query->where('is_hidden', false)->get();
 
         $visibleIds = collect($this->getAccessibleMenuIds($request->user()))
             ->mapWithKeys(fn ($id) => [(int) $id => true])
@@ -71,6 +73,7 @@ class MenuController extends Controller
             'sort_order'  => ['nullable', 'integer'],
             'is_title'    => ['nullable', 'boolean'],
             'is_active'   => ['nullable', 'boolean'],
+            'is_hidden'   => ['nullable', 'boolean'],
             'is_disabled' => ['nullable', 'boolean'],
             'is_special'  => ['nullable', 'boolean'],
             'badge_text'  => ['nullable', 'string', 'max:30'],
@@ -111,6 +114,7 @@ class MenuController extends Controller
             'sort_order'  => ['nullable', 'integer'],
             'is_title'    => ['nullable', 'boolean'],
             'is_active'   => ['nullable', 'boolean'],
+            'is_hidden'   => ['nullable', 'boolean'],
             'is_disabled' => ['nullable', 'boolean'],
             'is_special'  => ['nullable', 'boolean'],
             'badge_text'  => ['nullable', 'string', 'max:30'],

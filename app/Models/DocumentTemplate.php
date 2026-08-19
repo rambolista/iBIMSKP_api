@@ -13,6 +13,8 @@ class DocumentTemplate extends Model
         'description',
         'content_html',
         'variables',
+        'logo_placements',
+        'paper_size',
         'status',
         'created_by',
         'updated_by',
@@ -22,6 +24,7 @@ class DocumentTemplate extends Model
 
     protected $casts = [
         'variables' => 'array',
+        'logo_placements' => 'array',
         'archived_at' => 'datetime',
     ];
 

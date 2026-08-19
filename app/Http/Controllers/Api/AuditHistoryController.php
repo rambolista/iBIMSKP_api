@@ -8,7 +8,12 @@ use App\Models\BarangayId;
 use App\Models\Blotter;
 use App\Models\Customer;
 use App\Models\DocumentTemplate;
+use App\Models\DropdownSetting;
 use App\Models\Household;
+use App\Models\LuponCase;
+use App\Models\LuponHearing;
+use App\Models\LuponMember;
+use App\Models\LuponPangkat;
 use App\Models\Purok;
 use App\Models\Resident;
 use App\Models\ServiceRequest;
@@ -28,6 +33,11 @@ class AuditHistoryController extends Controller
         'barangayIds' => ['model' => BarangayId::class, 'menu' => '/barangay-id'],
         'blotters' => ['model' => Blotter::class, 'menu' => '/blotter'],
         'documentTemplates' => ['model' => DocumentTemplate::class, 'menu' => '/barangay-services/document-templates'],
+        'natureOfCaseSettings' => ['model' => DropdownSetting::class, 'menu' => '/apps/administration/dropdown-settings/nature-of-case'],
+        'katarungangCases' => ['model' => LuponCase::class, 'menu' => '/katarungang-pambarangay/cases'],
+        'katarungangHearings' => ['model' => LuponHearing::class, 'menu' => '/katarungang-pambarangay/hearings'],
+        'katarungangLuponMembers' => ['model' => LuponMember::class, 'menu' => '/katarungang-pambarangay/lupon-members'],
+        'katarungangPangkats' => ['model' => LuponPangkat::class, 'menu' => '/katarungang-pambarangay/pangkat'],
         'customers' => ['model' => Customer::class, 'menu' => '/apps/customers'],
     ];
 

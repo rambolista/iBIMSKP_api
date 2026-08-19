@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\BarangayServices;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
+use App\Models\DocumentLogo;
 use App\Models\ProjectSetting;
 use App\Models\ServiceRequest;
 use Illuminate\Http\JsonResponse;
@@ -14,14 +15,29 @@ use Illuminate\Validation\Rule;
 class ServiceRequestController extends Controller
 {
     private const MENU_URL = '/barangay-services/requests';
+    private const DEFAULT_PAPER_SIZE = 'a4';
+    private const PAPER_SIZES = ['a4', 'letter', 'custom', 'legal'];
+    private const LOGO_POSITIONS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right', 'entire-template'];
+    private const PAPER_HEIGHTS_MM = [
+        'a4' => 297,
+        'letter' => 279.4,
+        'custom' => 330.2,
+        'legal' => 355.6,
+    ];
 
     public function index(Request $request): JsonResponse
     {
         $this->authorizeAction($request, 'can_view');
 
+        $validated = $request->validate([
+            'resident_id' => ['nullable', 'integer'],
+            'status' => ['nullable', Rule::in(['pending', 'processing', 'released', 'rejected'])],
+        ]);
+
         return response()->json(ServiceRequest::query()
             ->with(['resident:id,resident_number,first_name,middle_name,last_name,suffix', 'serviceType:id,code,name,fee,document_template_id'])
-            ->when($request->integer('resident_id'), fn ($query, $residentId) => $query->where('resident_id', $residentId))
+            ->when(isset($validated['resident_id']), fn ($query) => $query->where('resident_id', $validated['resident_id']))
+            ->when(! empty($validated['status']), fn ($query) => $query->where('status', $validated['status']))
             ->latest('requested_at')
             ->get());
     }
@@ -93,6 +109,7 @@ class ServiceRequestController extends Controller
         return response()->json([
             'template_name' => $serviceRequest->serviceType?->documentTemplate?->name,
             'html' => $renderData['html'],
+            'paper_size' => $renderData['paper_size'] ?? self::DEFAULT_PAPER_SIZE,
             'verification_code' => $serviceRequest->verification_code,
             'verification_url' => $renderData['verification_url'],
         ]);
@@ -212,6 +229,7 @@ HTML;
             return [
                 'verification_url' => $verificationUrl,
                 'html' => '<p>No document template is assigned to this service type yet.</p>',
+                'paper_size' => self::DEFAULT_PAPER_SIZE,
             ];
         }
 
@@ -271,9 +289,143 @@ HTML;
             $html = str_replace('{{'.$key.'}}', (string) ($value ?? ''), $html);
         }
 
+        $paperSize = in_array($template->paper_size, self::PAPER_SIZES, true)
+            ? $template->paper_size
+            : self::DEFAULT_PAPER_SIZE;
+        $logoPlacements = collect($template->logo_placements ?? [])
+            ->filter(fn ($item) => is_array($item))
+            ->map(fn (array $item) => [
+                'document_logo_id' => (int) ($item['document_logo_id'] ?? 0),
+                'position' => (string) ($item['position'] ?? ''),
+                'behind_content' => (bool) ($item['behind_content'] ?? false),
+            ])
+            ->filter(fn (array $item) => $item['document_logo_id'] > 0 && in_array($item['position'], self::LOGO_POSITIONS, true))
+            ->values();
+        $logos = DocumentLogo::query()
+            ->whereIn('id', $logoPlacements->pluck('document_logo_id')->unique()->all())
+            ->get()
+            ->keyBy('id');
+        $logoByPosition = ['foreground' => [], 'background' => [], 'fullTemplate' => null];
+        foreach ($logoPlacements as $placement) {
+            $logo = $logos->get($placement['document_logo_id']);
+            if (! $logo?->photo_url) {
+                continue;
+            }
+
+            if ($placement['position'] === 'entire-template') {
+                $logoByPosition['fullTemplate'] = $logo->photo_url;
+                continue;
+            }
+
+            $layer = $placement['behind_content'] ? 'background' : 'foreground';
+            if (! isset($logoByPosition[$layer][$placement['position']])) {
+                $logoByPosition[$layer][$placement['position']] = [];
+            }
+            $logoByPosition[$layer][$placement['position']][] = $logo->photo_url;
+        }
+
+        $buildLogoImages = function (array $urls, string $position): string {
+            $count = count($urls);
+            $slotImageWidth = $count > 1
+                ? 'calc((100% - '.(($count - 1) * 8).'px) / '.$count.')'
+                : 'auto';
+
+            return collect($urls)
+                ->map(fn ($url, $index) => '<img src="'.e($url).'" alt="'.e($position).' logo '.($index + 1).'" style="max-height:72px;max-width:96px;width:'.$slotImageWidth.';object-fit:contain;flex:0 1 '.$slotImageWidth.';" />')
+                ->implode('');
+        };
+        $buildLogoRow = function (array $layerLogos, array $positions, string $wrapperStyle) use ($buildLogoImages): string {
+            $hasContent = collect($positions)->contains(fn ($position) => ! empty($layerLogos[$position]));
+
+            if (! $hasContent) {
+                return '';
+            }
+
+            $buildColumn = function (string $position) use ($layerLogos, $buildLogoImages): string {
+                $alignment = str_ends_with($position, 'left') ? 'left' : (str_ends_with($position, 'right') ? 'right' : 'center');
+                $justifyContent = $alignment === 'left' ? 'flex-start' : ($alignment === 'right' ? 'flex-end' : 'center');
+
+                return '<div style="width:33.33%;text-align:'.$alignment.';">'
+                    .'<div style="display:flex;gap:8px;justify-content:'.$justifyContent.';align-items:center;">'
+                    .$buildLogoImages($layerLogos[$position] ?? [], $position)
+                    .'</div>'
+                    .'</div>';
+            };
+
+            return '<div style="'.$wrapperStyle.'">'
+                .'<div style="display:flex;align-items:flex-start;">'
+                .$buildColumn($positions[0])
+                .$buildColumn($positions[1])
+                .$buildColumn($positions[2])
+                .'</div>'
+                .'</div>';
+        };
+        $buildBottomLogoSlot = function (array $layerLogos, string $position, bool $isForeground) use ($buildLogoImages): string {
+            $urls = $layerLogos[$position] ?? [];
+            if (empty($urls)) {
+                return '';
+            }
+
+            $textAlign = str_ends_with($position, 'left') ? 'left' : (str_ends_with($position, 'right') ? 'right' : 'center');
+            $justifyContent = str_ends_with($position, 'left') ? 'flex-start' : (str_ends_with($position, 'right') ? 'flex-end' : 'center');
+            $horizontalStyle = str_ends_with($position, 'left')
+                ? 'left:0;width:33.33%;'
+                : (str_ends_with($position, 'right')
+                    ? 'right:0;width:33.33%;'
+                    : 'left:50%;width:33.33%;transform:translateX(-50%);');
+            $bottom = $isForeground && $position === 'bottom-right' ? '92px' : '0';
+
+            return '<div style="position:absolute;'.$horizontalStyle.'bottom:'.$bottom.';z-index:'.($isForeground ? '1' : '0').';'.($isForeground ? '' : 'pointer-events:none;').'">'
+                .'<div style="text-align:'.$textAlign.';">'
+                .'<div style="display:flex;gap:8px;justify-content:'.$justifyContent.';align-items:center;">'
+                .$buildLogoImages($urls, $position)
+                .'</div>'
+                .'</div>'
+                .'</div>';
+        };
+
+        $foregroundHeaderHtml = $buildLogoRow($logoByPosition['foreground'], ['top-left', 'top-center', 'top-right'], 'position:relative;z-index:1;margin-bottom:24px;');
+        $foregroundFooterHtml = $buildBottomLogoSlot($logoByPosition['foreground'], 'bottom-left', true)
+            .$buildBottomLogoSlot($logoByPosition['foreground'], 'bottom-center', true)
+            .$buildBottomLogoSlot($logoByPosition['foreground'], 'bottom-right', true);
+        $backgroundHeaderHtml = $buildLogoRow($logoByPosition['background'], ['top-left', 'top-center', 'top-right'], 'position:absolute;top:0;left:0;right:0;z-index:0;pointer-events:none;');
+        $backgroundFooterHtml = $buildBottomLogoSlot($logoByPosition['background'], 'bottom-left', false)
+            .$buildBottomLogoSlot($logoByPosition['background'], 'bottom-center', false)
+            .$buildBottomLogoSlot($logoByPosition['background'], 'bottom-right', false);
+
+        $fullTemplateBackgroundHtml = '';
+        if (! empty($logoByPosition['fullTemplate'])) {
+            $fullTemplateBackgroundHtml = '<div style="position:absolute;inset:0;z-index:0;opacity:0.18;pointer-events:none;display:flex;align-items:center;justify-content:center;">'
+                .'<img src="'.e($logoByPosition['fullTemplate']).'" alt="Entire template background logo" style="max-width:75%;max-height:75%;object-fit:contain;" />'
+                .'</div>';
+        }
+
+        $maxBottomLogoCount = max(
+            count($logoByPosition['foreground']['bottom-left'] ?? []),
+            count($logoByPosition['foreground']['bottom-center'] ?? []),
+            count($logoByPosition['foreground']['bottom-right'] ?? [])
+        );
+        $reservedBottomSpace = max(
+            ! empty($logoByPosition['foreground']['bottom-left']) ? 72 : 0,
+            ! empty($logoByPosition['foreground']['bottom-center']) ? 72 : 0,
+            ! empty($logoByPosition['foreground']['bottom-right']) ? 72 + ($verificationUrl ? 92 : 0) : 0
+        );
+        $reservedBottomSpace = ($reservedBottomSpace > 0 ? $reservedBottomSpace : 0).'px';
+        $paperHeightMm = self::PAPER_HEIGHTS_MM[$paperSize] ?? self::PAPER_HEIGHTS_MM[self::DEFAULT_PAPER_SIZE];
+
+        $wrappedHtml = '<div style="position:relative;height:calc('.$paperHeightMm.'mm - 28mm);min-height:calc('.$paperHeightMm.'mm - 28mm);overflow:hidden;">'
+            .$fullTemplateBackgroundHtml
+            .$backgroundHeaderHtml
+            .$backgroundFooterHtml
+            .$foregroundHeaderHtml
+            .'<div style="position:relative;z-index:1;padding-bottom:'.$reservedBottomSpace.';">'.$html.'</div>'
+            .$foregroundFooterHtml
+            .'</div>';
+
         return [
             'verification_url' => $verificationUrl,
-            'html' => $html,
+            'html' => $wrappedHtml,
+            'paper_size' => $paperSize,
         ];
     }
 
