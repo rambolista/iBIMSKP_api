@@ -14,6 +14,7 @@ class DocumentTemplate extends Model
         'content_html',
         'variables',
         'logo_placements',
+        'document_type',
         'paper_size',
         'status',
         'created_by',

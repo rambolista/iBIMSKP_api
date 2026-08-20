@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\DropdownSetting;
 use App\Models\LuponCase;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -215,10 +216,46 @@ class CaseController extends Controller
         ]);
     }
 
+    private function generateCaseNumber(?string $dateFiled = null, ?LuponCase $case = null): string
+    {
+        $caseDate = $dateFiled ? Carbon::parse($dateFiled) : now();
+        $year = $caseDate->year;
+        $month = $caseDate->month;
+
+        $highestSequence = LuponCase::query()
+            ->whereNotNull('case_number')
+            ->pluck('case_number')
+            ->map(function ($value): ?int {
+                if (! is_string($value) && ! is_numeric($value)) {
+                    return null;
+                }
+
+                preg_match('/^(?:KP-)?(\d{4})-(\d{2})-(\d+)$/', trim((string) $value), $matches);
+
+                if (! isset($matches[1], $matches[3])) {
+                    return null;
+                }
+
+                return (int) $matches[1] === (int) $year ? (int) $matches[3] : null;
+            })
+            ->filter()
+            ->max();
+
+        $nextSequence = (int) ($highestSequence ?? 0) + 1;
+        $candidate = sprintf('%d-%02d-%03d', $year, $month, $nextSequence);
+
+        while (LuponCase::query()->where('case_number', $candidate)->when($case?->id, fn ($query) => $query->whereKeyNot($case->id))->exists()) {
+            $nextSequence += 1;
+            $candidate = sprintf('%d-%02d-%03d', $year, $month, $nextSequence);
+        }
+
+        return $candidate;
+    }
+
     private function validated(Request $request, ?LuponCase $case = null): array
     {
-        return $request->validate([
-            'case_number' => ['required', 'string', 'max:40', Rule::unique('lupon_cases', 'case_number')->ignore($case)],
+        $validated = $request->validate([
+            'case_number' => ['nullable', 'string', 'max:40', Rule::unique('lupon_cases', 'case_number')->ignore($case)],
             'date_filed' => ['required', 'date'],
             'complainant_resident_id' => ['nullable', 'integer', Rule::exists('residents', 'id')->where('status', 'active')],
             'complainant_name' => ['nullable', 'string', 'max:255'],
@@ -258,6 +295,12 @@ class CaseController extends Controller
             'attachment_evidence_files.*' => ['file', 'max:10240', 'mimes:jpg,jpeg,png,webp,gif,pdf,doc,docx,xls,xlsx,ppt,pptx,txt'],
             'remarks' => ['nullable', 'string'],
         ]);
+
+        if (blank($validated['case_number'] ?? null)) {
+            $validated['case_number'] = $this->generateCaseNumber($validated['date_filed'] ?? null, $case);
+        }
+
+        return $validated;
     }
 
     private function authorizeAction(Request $request, string $action): void

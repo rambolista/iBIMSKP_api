@@ -16,6 +16,9 @@ class DocumentTemplateController extends Controller
 {
     private const MENU_URL = '/barangay-services/document-templates';
     private const DEFAULT_PAPER_SIZE = 'a4';
+    private const DEFAULT_KP_PAPER_SIZE = 'custom';
+    private const DEFAULT_DOCUMENT_TYPE = 'certificate';
+    private const DOCUMENT_TYPES = ['certificate', 'kp_forms'];
     private const PAPER_SIZES = ['a4', 'letter', 'custom', 'legal'];
     private const LOGO_POSITIONS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right', 'entire-template'];
 
@@ -23,7 +26,15 @@ class DocumentTemplateController extends Controller
     {
         $this->authorizeAction($request, 'can_view');
 
-        $templates = DocumentTemplate::query()->orderBy('name')->get();
+        $validated = $request->validate([
+            'document_type' => ['nullable', Rule::in(self::DOCUMENT_TYPES)],
+        ]);
+
+        $templates = DocumentTemplate::query()
+            ->when(! empty($validated['document_type']), fn ($query) => $query->where('document_type', $validated['document_type']))
+            ->get()
+            ->sortBy(fn (DocumentTemplate $template) => $this->templateSortKey($template), SORT_NATURAL)
+            ->values();
         $logos = DocumentLogo::query()
             ->whereIn('id', $templates
                 ->pluck('logo_placements')
@@ -107,6 +118,7 @@ class DocumentTemplateController extends Controller
             'logo_placements.*.document_logo_id' => ['required_with:logo_placements', 'integer', Rule::exists('document_logos', 'id')],
             'logo_placements.*.position' => ['required_with:logo_placements', Rule::in(self::LOGO_POSITIONS)],
             'logo_placements.*.behind_content' => ['nullable', 'boolean'],
+            'document_type' => ['nullable', Rule::in(self::DOCUMENT_TYPES)],
             'paper_size' => ['nullable', Rule::in(self::PAPER_SIZES)],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
         ]);
@@ -130,9 +142,15 @@ class DocumentTemplateController extends Controller
         });
 
         $data = $validator->validate();
+        $data['document_type'] = in_array($data['document_type'] ?? null, self::DOCUMENT_TYPES, true)
+            ? $data['document_type']
+            : self::DEFAULT_DOCUMENT_TYPE;
+        $defaultPaperSize = $data['document_type'] === 'kp_forms'
+            ? self::DEFAULT_KP_PAPER_SIZE
+            : self::DEFAULT_PAPER_SIZE;
         $data['paper_size'] = in_array($data['paper_size'] ?? null, self::PAPER_SIZES, true)
             ? $data['paper_size']
-            : self::DEFAULT_PAPER_SIZE;
+            : $defaultPaperSize;
         $data['logo_placements'] = collect($data['logo_placements'] ?? [])
             ->filter(fn ($item) => is_array($item))
             ->map(fn (array $item) => [
@@ -158,6 +176,13 @@ class DocumentTemplateController extends Controller
             ])
             ->filter(fn (array $item) => $item['document_logo_id'] > 0 && in_array($item['position'], self::LOGO_POSITIONS, true))
             ->values();
+
+        $documentTemplate->setAttribute(
+            'document_type',
+            in_array($documentTemplate->document_type, self::DOCUMENT_TYPES, true)
+                ? $documentTemplate->document_type
+                : self::DEFAULT_DOCUMENT_TYPE
+        );
 
         $documentTemplate->setAttribute(
             'paper_size',
@@ -187,6 +212,20 @@ class DocumentTemplateController extends Controller
         })->values()->all());
 
         return $documentTemplate;
+    }
+
+    private function templateSortKey(DocumentTemplate $template): string
+    {
+        $documentType = $template->document_type === 'kp_forms' ? 'kp_forms' : 'certificate';
+
+        if ($documentType === 'kp_forms' && preg_match('/^KP-FORM-(\d+)(?:-([A-Z]))?$/', (string) $template->code, $matches)) {
+            $number = str_pad((string) $matches[1], 3, '0', STR_PAD_LEFT);
+            $suffix = $matches[2] ?? '';
+
+            return sprintf('1|%s|%s|%s', $number, $suffix, $template->name);
+        }
+
+        return sprintf('%s|%s|%s', $documentType === 'kp_forms' ? '1' : '0', mb_strtolower((string) $template->name), mb_strtolower((string) $template->code));
     }
 
     private function authorizeAction(Request $request, string $action): void
