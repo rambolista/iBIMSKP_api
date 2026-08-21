@@ -19,6 +19,7 @@ class DocumentTemplateController extends Controller
     private const DEFAULT_KP_PAPER_SIZE = 'custom';
     private const DEFAULT_DOCUMENT_TYPE = 'certificate';
     private const DOCUMENT_TYPES = ['certificate', 'kp_forms'];
+    private const KP_STAGES = ['filed', 'mediation', 'pangkat', 'settled', 'cfa'];
     private const PAPER_SIZES = ['a4', 'letter', 'custom', 'legal'];
     private const LOGO_POSITIONS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right', 'entire-template'];
 
@@ -119,6 +120,7 @@ class DocumentTemplateController extends Controller
             'logo_placements.*.position' => ['required_with:logo_placements', Rule::in(self::LOGO_POSITIONS)],
             'logo_placements.*.behind_content' => ['nullable', 'boolean'],
             'document_type' => ['nullable', Rule::in(self::DOCUMENT_TYPES)],
+            'kp_stage' => ['nullable', Rule::in(self::KP_STAGES)],
             'paper_size' => ['nullable', Rule::in(self::PAPER_SIZES)],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
         ]);

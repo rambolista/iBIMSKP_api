@@ -15,6 +15,7 @@ class DocumentTemplate extends Model
         'variables',
         'logo_placements',
         'document_type',
+        'kp_stage',
         'paper_size',
         'status',
         'created_by',

@@ -10,29 +10,24 @@ class LuponHearing extends Model
 {
     protected $table = 'lupon_hearings';
 
+    private const ACTIVE_CASE_STATUSES = ['filed', 'for_mediation', 'for_conciliation', 'for_pangkat'];
+
     protected $fillable = [
         'case_id',
         'hearing_date',
         'hearing_time',
-        'type',
         'location',
-        'attendance_summary',
-        'result_summary',
-        'next_hearing_at',
-        'status',
-        'proceedings',
-        'next_action_notes',
-        'documents_notes',
-        'remarks',
+        'case_status_at_scheduling',
         'archived_at',
         'archived_by',
     ];
+
+    protected $appends = ['schedule_editable'];
 
     protected function casts(): array
     {
         return [
             'hearing_date' => 'date',
-            'next_hearing_at' => 'date',
             'archived_at' => 'datetime',
         ];
     }
@@ -40,6 +35,17 @@ class LuponHearing extends Model
     public function case(): BelongsTo
     {
         return $this->belongsTo(LuponCase::class, 'case_id');
+    }
+
+    public function getScheduleEditableAttribute(): bool
+    {
+        if ($this->archived_at || ! $this->hearing_date || $this->hearing_date->lt(today())) {
+            return false;
+        }
+
+        $caseStatus = $this->relationLoaded('case') ? $this->case?->status : $this->case()->value('status');
+
+        return in_array($caseStatus, self::ACTIVE_CASE_STATUSES, true);
     }
 
     public function luponMembers(): BelongsToMany

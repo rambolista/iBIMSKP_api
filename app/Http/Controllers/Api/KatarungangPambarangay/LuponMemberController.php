@@ -61,8 +61,7 @@ class LuponMemberController extends Controller
 
         $payload = $this->validated($request);
         $member = DB::transaction(function () use ($payload, $request) {
-            $member = LuponMember::create(Arr::except($payload, ['case_ids', 'hearing_ids', 'photo']));
-            $this->syncAssignments($member, $payload);
+            $member = LuponMember::create(Arr::except($payload, ['photo']));
             if ($request->hasFile('photo')) {
                 $member->replacePhoto($request->file('photo'));
             }
@@ -89,8 +88,7 @@ class LuponMemberController extends Controller
         $payload = $this->validated($request, $luponMember);
 
         DB::transaction(function () use ($luponMember, $payload, $before, $request): void {
-            $luponMember->update(Arr::except($payload, ['case_ids', 'hearing_ids', 'photo']));
-            $this->syncAssignments($luponMember, $payload);
+            $luponMember->update(Arr::except($payload, ['photo']));
             if ($request->hasFile('photo')) {
                 $luponMember->replacePhoto($request->file('photo'));
             }
@@ -123,18 +121,12 @@ class LuponMemberController extends Controller
                 'cases:id,case_number,date_filed,nature,assigned_lupon,status,complainant_name,respondent_name,complainant_resident_id,respondent_resident_id',
                 'cases.complainantResident:id,first_name,middle_name,last_name,suffix',
                 'cases.respondentResident:id,first_name,middle_name,last_name,suffix',
-                'hearings:id,case_id,hearing_date,hearing_time,type,location,attendance_summary,result_summary,next_hearing_at,status',
+                'hearings:id,case_id,hearing_date,hearing_time,location,archived_at',
                 'hearings.case:id,case_number,assigned_lupon,complainant_name,respondent_name,complainant_resident_id,respondent_resident_id',
                 'hearings.case.complainantResident:id,first_name,middle_name,last_name,suffix',
                 'hearings.case.respondentResident:id,first_name,middle_name,last_name,suffix',
             ])
             ->loadCount(['cases', 'hearings']);
-    }
-
-    private function syncAssignments(LuponMember $luponMember, array $payload): void
-    {
-        $luponMember->cases()->sync($payload['case_ids'] ?? []);
-        $luponMember->hearings()->sync($payload['hearing_ids'] ?? []);
     }
 
     private function validated(Request $request, ?LuponMember $luponMember = null): array
@@ -149,14 +141,7 @@ class LuponMemberController extends Controller
             'status' => ['nullable', Rule::in(self::STATUSES)],
             'photo' => ['nullable', 'image', 'max:5120'],
             'appointment_notes' => ['nullable', 'string'],
-            'attendance_notes' => ['nullable', 'string'],
-            'documents_notes' => ['nullable', 'string'],
-            'history_notes' => ['nullable', 'string'],
             'remarks' => ['nullable', 'string'],
-            'case_ids' => ['nullable', 'array'],
-            'case_ids.*' => ['integer', 'distinct', Rule::exists('lupon_cases', 'id')->whereNull('archived_at')],
-            'hearing_ids' => ['nullable', 'array'],
-            'hearing_ids.*' => ['integer', 'distinct', Rule::exists('lupon_hearings', 'id')->whereNull('archived_at')],
         ]);
     }
 

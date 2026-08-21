@@ -29,10 +29,6 @@ class LuponCase extends Model
         'date_closed',
         'complaint_details',
         'case_timeline',
-        'hearing_notes',
-        'attendance_notes',
-        'mediation_notes',
-        'conciliation_notes',
         'settlement_status',
         'settlement_date',
         'settlement_agreement',
@@ -98,6 +94,11 @@ class LuponCase extends Model
             ->withTimestamps()
             ->orderBy('position')
             ->orderBy('id');
+    }
+
+    public function documentPrints(): HasMany
+    {
+        return $this->hasMany(LuponCaseDocumentPrint::class, 'case_id');
     }
 
     public function getComplainantDisplayAttribute(): string

@@ -32,6 +32,8 @@ class PangkatController extends Controller
                     'case:id,case_number,nature,assigned_lupon,status,complainant_name,respondent_name,complainant_resident_id,respondent_resident_id',
                     'case.complainantResident:id,first_name,middle_name,last_name,suffix',
                     'case.respondentResident:id,first_name,middle_name,last_name,suffix',
+                    'members:id,member_id,resident_id,position,status',
+                    'members.resident:id,resident_number,first_name,middle_name,last_name,suffix',
                 ])
                 ->when(! empty($validated['status']), fn ($query) => $query->where('status', $validated['status']))
                 ->when(! empty($validated['date_constituted']), fn ($query) => $query->whereDate('date_constituted', $validated['date_constituted']))
@@ -51,8 +53,11 @@ class PangkatController extends Controller
         $this->authorizeAction($request, 'can_add');
 
         $data = $this->validated($request);
+        $memberIds = $data['member_ids'] ?? [];
+        unset($data['member_ids']);
         $pangkat = LuponPangkat::create($data)->fresh();
-        AuditLog::recordCreated($request->user(), $pangkat, array_keys($data));
+        $pangkat->members()->sync($memberIds);
+        AuditLog::recordCreated($request->user(), $pangkat, [...array_keys($data), 'member_ids']);
 
         return response()->json($this->loadPangkat($pangkat), 201);
     }
@@ -70,8 +75,11 @@ class PangkatController extends Controller
 
         $before = $pangkat->getAttributes();
         $data = $this->validated($request, $pangkat);
+        $memberIds = $data['member_ids'] ?? [];
+        unset($data['member_ids']);
         $pangkat->update($data);
-        AuditLog::recordUpdated($request->user(), $pangkat->fresh(), $before, array_keys($data));
+        $pangkat->members()->sync($memberIds);
+        AuditLog::recordUpdated($request->user(), $pangkat->fresh(), $before, [...array_keys($data), 'member_ids']);
 
         return response()->json($this->loadPangkat($pangkat->fresh()));
     }
@@ -97,6 +105,8 @@ class PangkatController extends Controller
             'case:id,case_number,date_filed,nature,assigned_lupon,status,complainant_name,respondent_name,complainant_resident_id,respondent_resident_id',
             'case.complainantResident:id,resident_number,first_name,middle_name,last_name,suffix',
             'case.respondentResident:id,resident_number,first_name,middle_name,last_name,suffix',
+            'members:id,member_id,resident_id,position,status',
+            'members.resident:id,resident_number,first_name,middle_name,last_name,suffix',
         ]);
     }
 
@@ -106,11 +116,9 @@ class PangkatController extends Controller
             'pangkat_id' => ['required', 'string', 'max:40', Rule::unique('lupon_pangkats', 'pangkat_id')->ignore($pangkat)],
             'case_id' => ['required', 'integer', Rule::exists('lupon_cases', 'id')->whereNull('archived_at')],
             'date_constituted' => ['required', 'date'],
+            'member_ids' => ['nullable', 'array', 'max:3'],
+            'member_ids.*' => ['integer', Rule::exists('lupon_members', 'id')->where('status', 'active')],
             'members_summary' => ['nullable', 'string'],
-            'meeting_notes' => ['nullable', 'string'],
-            'attendance_notes' => ['nullable', 'string'],
-            'proceedings_notes' => ['nullable', 'string'],
-            'documents_notes' => ['nullable', 'string'],
             'status' => ['nullable', Rule::in(self::STATUSES)],
             'remarks' => ['nullable', 'string'],
         ]);

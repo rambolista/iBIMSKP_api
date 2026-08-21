@@ -42,6 +42,25 @@ final class KpFormTemplateCatalog
         return array_column(self::definitions(), 'code');
     }
 
+    /**
+     * Which case stage this form first becomes relevant at. A case detail
+     * page shows a form once its case reaches this stage (cumulative with
+     * earlier stages). Forms 1-6 concern constituting/appointing the Lupon
+     * body itself rather than an individual case, so they return null and
+     * are not surfaced on a case's Documents panel.
+     */
+    public static function caseStage(string $code): ?string
+    {
+        return match ($code) {
+            'KP-FORM-7' => 'filed',
+            'KP-FORM-8', 'KP-FORM-9', 'KP-FORM-18', 'KP-FORM-19' => 'mediation',
+            'KP-FORM-10', 'KP-FORM-11', 'KP-FORM-12', 'KP-FORM-13', 'KP-FORM-14', 'KP-FORM-15' => 'pangkat',
+            'KP-FORM-16', 'KP-FORM-17', 'KP-FORM-23', 'KP-FORM-24', 'KP-FORM-25' => 'settled',
+            'KP-FORM-20', 'KP-FORM-20-A', 'KP-FORM-20-B', 'KP-FORM-21', 'KP-FORM-22' => 'cfa',
+            default => null,
+        };
+    }
+
     public static function payload(array $definition, $timestamp): array
     {
         return [

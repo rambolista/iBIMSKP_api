@@ -13,8 +13,6 @@ use Illuminate\Validation\Rule;
 class HearingController extends Controller
 {
     private const MENU_URL = '/katarungang-pambarangay/hearings';
-    private const HEARING_TYPES = ['mediation', 'conciliation', 'pangkat', 'settlement', 'cfa', 'follow_up', 'other'];
-    private const HEARING_STATUSES = ['scheduled', 'ongoing', 'completed', 'reset', 'cancelled', 'no_show'];
 
     public function index(Request $request): JsonResponse
     {
@@ -22,8 +20,6 @@ class HearingController extends Controller
 
         $validated = $request->validate([
             'case_id' => ['nullable', 'integer', Rule::exists('lupon_cases', 'id')],
-            'status' => ['nullable', Rule::in(self::HEARING_STATUSES)],
-            'type' => ['nullable', Rule::in(self::HEARING_TYPES)],
             'hearing_date' => ['nullable', 'date'],
             'location' => ['nullable', 'string', 'max:255'],
             'assigned_lupon' => ['nullable', 'string', 'max:255'],
@@ -35,15 +31,13 @@ class HearingController extends Controller
         return response()->json(
             LuponHearing::query()
                 ->with([
-                    'case:id,case_number,assigned_lupon,complainant_name,respondent_name,complainant_resident_id,respondent_resident_id',
+                    'case:id,case_number,assigned_lupon,status,complainant_name,respondent_name,complainant_resident_id,respondent_resident_id',
                     'case.complainantResident:id,first_name,middle_name,last_name,suffix',
                     'case.respondentResident:id,first_name,middle_name,last_name,suffix',
                     'luponMembers:id,member_id,resident_id,position,date_appointed,term_start,term_end,status',
                     'luponMembers.resident:id,resident_number,first_name,middle_name,last_name,suffix',
                 ])
                 ->when(! empty($validated['case_id']), fn ($query) => $query->where('case_id', $validated['case_id']))
-                ->when(! empty($validated['status']), fn ($query) => $query->where('status', $validated['status']))
-                ->when(! empty($validated['type']), fn ($query) => $query->where('type', $validated['type']))
                 ->when(! empty($validated['hearing_date']), fn ($query) => $query->whereDate('hearing_date', $validated['hearing_date']))
                 ->when(! empty($validated['location']), fn ($query) => $query->where('location', 'like', '%'.$validated['location'].'%'))
                 ->when(! empty($validated['assigned_lupon']), function ($query) use ($validated) {
@@ -80,6 +74,7 @@ class HearingController extends Controller
         $this->authorizeAction($request, 'can_add');
 
         $data = $this->validated($request);
+        $data['case_status_at_scheduling'] = LuponCase::query()->whereKey($data['case_id'])->value('status');
         $hearing = LuponHearing::create($data)->fresh();
         $this->syncCaseNextHearing($hearing->case_id);
         AuditLog::recordCreated($request->user(), $hearing, array_keys($data));
@@ -101,6 +96,18 @@ class HearingController extends Controller
         $before = $hearing->getAttributes();
         $originalCaseId = $hearing->case_id;
         $data = $this->validated($request, $hearing);
+
+        $normalizeTime = fn (?string $value): ?string => $value ? substr($value, 0, 5) : null;
+        $scheduleChanged = $data['hearing_date'] !== $hearing->hearing_date?->format('Y-m-d')
+            || $normalizeTime($data['hearing_time'] ?? null) !== $normalizeTime($hearing->hearing_time);
+        abort_if($scheduleChanged && ! $hearing->schedule_editable, 422, 'This hearing can no longer be rescheduled.');
+
+        if ($data['case_id'] !== $originalCaseId) {
+            // Reassigning the hearing to a different case: the recorded status
+            // reflects the case it's scheduled for now, not the old one.
+            $data['case_status_at_scheduling'] = LuponCase::query()->whereKey($data['case_id'])->value('status');
+        }
+
         $hearing->update($data);
         $this->syncCaseNextHearing($originalCaseId);
         if ($originalCaseId !== $hearing->case_id) {
@@ -117,14 +124,25 @@ class HearingController extends Controller
 
         $before = $hearing->getAttributes();
         $hearing->update([
-            'status' => 'cancelled',
             'archived_at' => now(),
             'archived_by' => $request->user()->id,
         ]);
         $this->syncCaseNextHearing($hearing->case_id);
-        AuditLog::recordUpdated($request->user(), $hearing->fresh(), $before, ['status', 'archived_at', 'archived_by']);
+        AuditLog::recordUpdated($request->user(), $hearing->fresh(), $before, ['archived_at', 'archived_by']);
 
         return response()->json(['message' => 'Lupon hearing archived.']);
+    }
+
+    public function forceDestroy(Request $request, LuponHearing $hearing): JsonResponse
+    {
+        $this->authorizeAction($request, 'can_delete');
+
+        $caseId = $hearing->case_id;
+        AuditLog::recordDeleted($request->user(), $hearing, $hearing->getAttributes(), array_keys($hearing->getAttributes()));
+        $hearing->delete();
+        $this->syncCaseNextHearing($caseId);
+
+        return response()->json(['message' => 'Lupon hearing permanently deleted.']);
     }
 
     private function loadHearing(LuponHearing $hearing): LuponHearing
@@ -147,7 +165,6 @@ class HearingController extends Controller
         $nextHearing = LuponHearing::query()
             ->where('case_id', $caseId)
             ->whereNull('archived_at')
-            ->whereNotIn('status', ['cancelled'])
             ->orderBy('hearing_date')
             ->orderBy('hearing_time')
             ->value('hearing_date');
@@ -163,16 +180,7 @@ class HearingController extends Controller
             'case_id' => ['required', 'integer', Rule::exists('lupon_cases', 'id')->whereNull('archived_at')],
             'hearing_date' => ['required', 'date'],
             'hearing_time' => ['nullable', 'date_format:H:i'],
-            'type' => ['required', Rule::in(self::HEARING_TYPES)],
             'location' => ['nullable', 'string', 'max:255'],
-            'attendance_summary' => ['nullable', 'string'],
-            'result_summary' => ['nullable', 'string'],
-            'next_hearing_at' => ['nullable', 'date', 'after_or_equal:hearing_date'],
-            'status' => ['nullable', Rule::in(self::HEARING_STATUSES)],
-            'proceedings' => ['nullable', 'string'],
-            'next_action_notes' => ['nullable', 'string'],
-            'documents_notes' => ['nullable', 'string'],
-            'remarks' => ['nullable', 'string'],
         ]);
     }
 

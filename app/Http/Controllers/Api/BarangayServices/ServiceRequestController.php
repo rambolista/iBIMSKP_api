@@ -7,6 +7,7 @@ use App\Models\AuditLog;
 use App\Models\DocumentLogo;
 use App\Models\ProjectSetting;
 use App\Models\ServiceRequest;
+use App\Models\ServiceRequestLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -15,6 +16,9 @@ use Illuminate\Validation\Rule;
 class ServiceRequestController extends Controller
 {
     private const MENU_URL = '/barangay-services/requests';
+    private const STATUSES = ['pending', 'validation', 'approval', 'approved', 'payment', 'processing', 'released', 'rejected', 'cancelled'];
+    private const CANCELLABLE_STATUSES = ['pending', 'validation', 'approval', 'approved', 'payment'];
+    private const REJECTABLE_STATUSES = ['validation', 'approval'];
     private const DEFAULT_PAPER_SIZE = 'a4';
     private const PAPER_SIZES = ['a4', 'letter', 'custom', 'legal'];
     private const LOGO_POSITIONS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right', 'entire-template'];
@@ -31,7 +35,7 @@ class ServiceRequestController extends Controller
 
         $validated = $request->validate([
             'resident_id' => ['nullable', 'integer'],
-            'status' => ['nullable', Rule::in(['pending', 'processing', 'released', 'rejected'])],
+            'status' => ['nullable', Rule::in(self::STATUSES)],
         ]);
 
         return response()->json(ServiceRequest::query()
@@ -48,10 +52,12 @@ class ServiceRequestController extends Controller
 
         $data = $this->validated($request);
         $data['verification_code'] = (string) Str::uuid();
+        $data['status'] = 'pending';
         $serviceRequest = ServiceRequest::create($data);
         $renderData = $this->renderDocument($serviceRequest->fresh()->load(['resident.household', 'resident.purok', 'serviceType.documentTemplate']));
         $serviceRequest->update(['rendered_document_html' => $renderData['html']]);
         AuditLog::recordCreated($request->user(), $serviceRequest->fresh(), array_keys($data));
+        $this->addLog($serviceRequest, 'Request filed', "Filed at the front desk for {$serviceRequest->serviceType?->name}.", $request->user());
 
         return response()->json($this->loadRequest($serviceRequest->fresh()), 201);
     }
@@ -88,7 +94,163 @@ class ServiceRequestController extends Controller
 
     private function loadRequest(ServiceRequest $serviceRequest): ServiceRequest
     {
-        return $serviceRequest->load(['resident.household', 'resident.purok', 'serviceType.documentTemplate']);
+        return $serviceRequest->load(['resident.household', 'resident.purok', 'serviceType.documentTemplate', 'verifiedBy:id,name', 'logs.actor:id,name']);
+    }
+
+    public function verify(Request $request, ServiceRequest $serviceRequest): JsonResponse
+    {
+        $this->authorizeAction($request, 'can_edit');
+        $this->assertStatus($serviceRequest, ['pending']);
+        $data = $request->validate(['remarks' => ['nullable', 'string']]);
+
+        $serviceRequest->update([
+            'status' => 'validation',
+            'verified_at' => now(),
+            'verified_by' => $request->user()->id,
+        ]);
+
+        $message = 'Identity confirmed against the resident database.'.(! empty($data['remarks']) ? ' Remarks: '.$data['remarks'] : '');
+        $this->addLog($serviceRequest, 'Resident verified', $message, $request->user());
+
+        return response()->json($this->loadRequest($serviceRequest->fresh()));
+    }
+
+    public function validateRequirements(Request $request, ServiceRequest $serviceRequest): JsonResponse
+    {
+        $this->authorizeAction($request, 'can_edit');
+        $this->assertStatus($serviceRequest, ['validation']);
+
+        $serviceRequest->update(['status' => 'approval']);
+
+        $fee = (float) ($serviceRequest->serviceType?->fee ?? 0);
+        $message = $fee > 0
+            ? 'All requirements confirmed complete. Fee assessed at ₱'.number_format($fee, 2)." ({$serviceRequest->serviceType?->name}). Routed for approval."
+            : 'All requirements confirmed complete. No fee applicable. Routed for approval.';
+        $this->addLog($serviceRequest, 'Requirements validated', $message, $request->user());
+
+        return response()->json($this->loadRequest($serviceRequest->fresh()));
+    }
+
+    public function approve(Request $request, ServiceRequest $serviceRequest): JsonResponse
+    {
+        $this->authorizeAction($request, 'can_edit');
+        $this->assertStatus($serviceRequest, ['approval']);
+        $data = $request->validate(['signatory' => ['required', 'string', 'max:255']]);
+
+        $serviceRequest->update(['status' => 'approved', 'signatory' => $data['signatory']]);
+
+        $fee = (float) ($serviceRequest->serviceType?->fee ?? 0);
+        $message = "Approved by {$data['signatory']}.".($fee > 0 ? ' Awaiting payment.' : ' No fee due — ready for printing.');
+        $this->addLog($serviceRequest, 'Approved', $message, $request->user());
+
+        return response()->json($this->loadRequest($serviceRequest->fresh()));
+    }
+
+    public function proceedToPayment(Request $request, ServiceRequest $serviceRequest): JsonResponse
+    {
+        $this->authorizeAction($request, 'can_edit');
+        $this->assertStatus($serviceRequest, ['approved']);
+        $fee = (float) ($serviceRequest->serviceType?->fee ?? 0);
+        abort_if($fee <= 0, 422, 'No fee applies to this service type — proceed to printing instead.');
+
+        $serviceRequest->update(['status' => 'payment']);
+        $this->addLog($serviceRequest, 'Awaiting payment', 'Resident directed to pay ₱'.number_format($fee, 2).' at the cashier.', $request->user());
+
+        return response()->json($this->loadRequest($serviceRequest->fresh()));
+    }
+
+    public function proceedToPrinting(Request $request, ServiceRequest $serviceRequest): JsonResponse
+    {
+        $this->authorizeAction($request, 'can_edit');
+        $this->assertStatus($serviceRequest, ['approved']);
+        $fee = (float) ($serviceRequest->serviceType?->fee ?? 0);
+        abort_if($fee > 0, 422, 'This service type has a fee — record payment instead.');
+
+        $serviceRequest->update(['status' => 'processing', 'payment_status' => 'waived']);
+        $this->addLog($serviceRequest, 'Document generated', 'No fee due. Document generated and ready to print.', $request->user());
+
+        return response()->json($this->loadRequest($serviceRequest->fresh()));
+    }
+
+    public function recordPayment(Request $request, ServiceRequest $serviceRequest): JsonResponse
+    {
+        $this->authorizeAction($request, 'can_edit');
+        $this->assertStatus($serviceRequest, ['payment']);
+        $data = $request->validate([
+            'or_number' => ['required', 'string', 'max:60'],
+            'paid_at' => ['required', 'date'],
+        ]);
+
+        $serviceRequest->update([
+            'status' => 'processing',
+            'payment_status' => 'paid',
+            'or_number' => $data['or_number'],
+            'paid_at' => $data['paid_at'],
+        ]);
+
+        $fee = (float) ($serviceRequest->serviceType?->fee ?? 0);
+        $message = '₱'.number_format($fee, 2)." paid, OR No. {$data['or_number']}. Document generated and ready to print.";
+        $this->addLog($serviceRequest, 'Payment recorded', $message, $request->user());
+
+        return response()->json($this->loadRequest($serviceRequest->fresh()));
+    }
+
+    public function release(Request $request, ServiceRequest $serviceRequest): JsonResponse
+    {
+        $this->authorizeAction($request, 'can_edit');
+        $this->assertStatus($serviceRequest, ['processing']);
+        $data = $request->validate(['released_to' => ['nullable', 'string', 'max:255']]);
+        $releasedTo = ($data['released_to'] ?? null) ?: $serviceRequest->resident?->full_name;
+
+        $serviceRequest->update([
+            'status' => 'released',
+            'released_at' => now(),
+            'released_to' => $releasedTo,
+        ]);
+
+        $this->addLog($serviceRequest, 'Printed & released', "Printed and released to {$releasedTo}.", $request->user());
+
+        return response()->json($this->loadRequest($serviceRequest->fresh()));
+    }
+
+    public function reject(Request $request, ServiceRequest $serviceRequest): JsonResponse
+    {
+        $this->authorizeAction($request, 'can_edit');
+        $this->assertStatus($serviceRequest, self::REJECTABLE_STATUSES);
+        $data = $request->validate(['reject_reason' => ['required', 'string']]);
+
+        $serviceRequest->update(['status' => 'rejected', 'reject_reason' => $data['reject_reason']]);
+        $this->addLog($serviceRequest, 'Rejected', $data['reject_reason'], $request->user());
+
+        return response()->json($this->loadRequest($serviceRequest->fresh()));
+    }
+
+    public function cancel(Request $request, ServiceRequest $serviceRequest): JsonResponse
+    {
+        $this->authorizeAction($request, 'can_edit');
+        $this->assertStatus($serviceRequest, self::CANCELLABLE_STATUSES);
+        $data = $request->validate(['cancel_reason' => ['nullable', 'string']]);
+        $reason = ($data['cancel_reason'] ?? null) ?: 'No reason provided.';
+
+        $serviceRequest->update(['status' => 'cancelled', 'cancel_reason' => $reason]);
+        $this->addLog($serviceRequest, 'Cancelled', $reason, $request->user());
+
+        return response()->json($this->loadRequest($serviceRequest->fresh()));
+    }
+
+    private function assertStatus(ServiceRequest $serviceRequest, array $allowed): void
+    {
+        abort_unless(in_array($serviceRequest->status, $allowed, true), 422, "This action is not available while the request is \"{$serviceRequest->status}\".");
+    }
+
+    private function addLog(ServiceRequest $serviceRequest, string $label, string $message, $user): void
+    {
+        ServiceRequestLog::create([
+            'service_request_id' => $serviceRequest->id,
+            'label' => $label,
+            'message' => $message,
+            'actor_id' => $user?->id,
+        ]);
     }
 
     public function documentPreview(Request $request, ServiceRequest $serviceRequest): JsonResponse
@@ -162,8 +324,6 @@ class ServiceRequestController extends Controller
         $serviceType = e($serviceRequest->serviceType?->name ?? '—');
         $requestNumber = e($serviceRequest->request_number ?? '—');
         $status = e($serviceRequest->status ?? '—');
-        $approvalStatus = e($serviceRequest->approval_status ?? '—');
-        $paymentStatus = e($serviceRequest->payment_status ?? '—');
         $requestedAt = e(optional($serviceRequest->requested_at)->format('Y-m-d') ?? '—');
         $releasedAt = e(optional($serviceRequest->released_at)->format('Y-m-d') ?? '—');
 
@@ -188,8 +348,6 @@ class ServiceRequestController extends Controller
           <tr><td style="padding:8px 0;color:#6c757d;">Resident</td><td style="padding:8px 0;">{$resident}</td></tr>
           <tr><td style="padding:8px 0;color:#6c757d;">Service Type</td><td style="padding:8px 0;">{$serviceType}</td></tr>
           <tr><td style="padding:8px 0;color:#6c757d;">Request Status</td><td style="padding:8px 0;">{$status}</td></tr>
-          <tr><td style="padding:8px 0;color:#6c757d;">Approval Status</td><td style="padding:8px 0;">{$approvalStatus}</td></tr>
-          <tr><td style="padding:8px 0;color:#6c757d;">Payment Status</td><td style="padding:8px 0;">{$paymentStatus}</td></tr>
           <tr><td style="padding:8px 0;color:#6c757d;">Date Requested</td><td style="padding:8px 0;">{$requestedAt}</td></tr>
           <tr><td style="padding:8px 0;color:#6c757d;">Date Released</td><td style="padding:8px 0;">{$releasedAt}</td></tr>
         </table>
@@ -212,10 +370,6 @@ HTML;
             'purpose' => ['required', 'string'],
             'requirements_notes' => ['nullable', 'string'],
             'requested_at' => ['required', 'date'],
-            'released_at' => ['nullable', 'date', 'after_or_equal:requested_at'],
-            'status' => ['nullable', Rule::in(['pending', 'processing', 'released', 'rejected'])],
-            'payment_status' => ['nullable', Rule::in(['unpaid', 'paid', 'waived'])],
-            'approval_status' => ['nullable', Rule::in(['pending', 'approved', 'rejected', 'not_required'])],
             'remarks' => ['nullable', 'string'],
         ]);
     }

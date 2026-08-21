@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\KatarungangPambarangay;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
+use App\Models\DocumentTemplate;
 use App\Models\DropdownSetting;
 use App\Models\LuponCase;
 use Carbon\Carbon;
@@ -14,7 +15,7 @@ use Illuminate\Validation\Rule;
 class CaseController extends Controller
 {
     private const MENU_URL = '/katarungang-pambarangay/cases';
-    private const CASE_STATUSES = ['filed', 'for_mediation', 'for_conciliation', 'for_pangkat', 'settled', 'cfa_issued', 'closed', 'dismissed'];
+    private const CASE_STATUSES = ['filed', 'for_mediation', 'for_conciliation', 'for_pangkat', 'settled', 'cfa_issued', 'closed'];
     private const SETTLEMENT_STATUSES = ['none', 'ongoing', 'agreed', 'failed', 'approved'];
     private const CERTIFICATE_STATUSES = ['not_issued', 'drafted', 'issued', 'served', 'verified'];
 
@@ -37,12 +38,14 @@ class CaseController extends Controller
                     'complainantResident:id,resident_number,first_name,middle_name,last_name,suffix',
                     'respondentResident:id,resident_number,first_name,middle_name,last_name,suffix',
                     'relatedBlotter:id,blotter_number,incident_date,status',
-                    'hearings:id,case_id,hearing_date,hearing_time,type,location,status,result_summary,next_hearing_at',
+                    'hearings:id,case_id,hearing_date,hearing_time,location,archived_at',
                     'hearings.luponMembers:id,member_id,resident_id,position,status',
                     'hearings.luponMembers.resident:id,resident_number,first_name,middle_name,last_name,suffix',
                     'luponMembers:id,member_id,resident_id,position,date_appointed,term_start,term_end,status',
                     'luponMembers.resident:id,resident_number,first_name,middle_name,last_name,suffix',
                     'pangkats',
+                    'pangkats.members:id,member_id,resident_id,position,status',
+                    'pangkats.members.resident:id,resident_number,first_name,middle_name,last_name,suffix',
                 ])
                 ->when(! empty($validated['status']), fn ($query) => $query->where('status', $validated['status']))
                 ->when(! empty($validated['nature']), fn ($query) => $query->where('nature', 'like', '%'.$validated['nature'].'%'))
@@ -207,13 +210,28 @@ class CaseController extends Controller
             'complainantResident:id,resident_number,first_name,middle_name,last_name,suffix',
             'respondentResident:id,resident_number,first_name,middle_name,last_name,suffix',
             'relatedBlotter:id,blotter_number,incident_date,status,complainant_name,respondent_name',
-            'hearings:id,case_id,hearing_date,hearing_time,type,location,status,result_summary,next_hearing_at',
+            'hearings:id,case_id,hearing_date,hearing_time,location,archived_at',
             'hearings.luponMembers:id,member_id,resident_id,position,status',
             'hearings.luponMembers.resident:id,resident_number,first_name,middle_name,last_name,suffix',
             'luponMembers:id,member_id,resident_id,position,date_appointed,term_start,term_end,status',
             'luponMembers.resident:id,resident_number,first_name,middle_name,last_name,suffix',
             'pangkats',
+            'pangkats.members:id,member_id,resident_id,position,status',
+            'pangkats.members.resident:id,resident_number,first_name,middle_name,last_name,suffix',
+            'documentPrints:id,case_id,document_template_id,printed_at,printed_by',
         ]);
+    }
+
+    public function markDocumentPrinted(Request $request, LuponCase $case, DocumentTemplate $documentTemplate): JsonResponse
+    {
+        $this->authorizeAction($request, 'can_print');
+
+        $case->documentPrints()->updateOrCreate(
+            ['document_template_id' => $documentTemplate->id],
+            ['printed_at' => now(), 'printed_by' => $request->user()->id],
+        );
+
+        return response()->json($this->loadCase($case->fresh()));
     }
 
     private function generateCaseNumber(?string $dateFiled = null, ?LuponCase $case = null): string
@@ -272,10 +290,6 @@ class CaseController extends Controller
             ],
             'complaint_details' => ['nullable', 'string'],
             'case_timeline' => ['nullable', 'string'],
-            'hearing_notes' => ['nullable', 'string'],
-            'attendance_notes' => ['nullable', 'string'],
-            'mediation_notes' => ['nullable', 'string'],
-            'conciliation_notes' => ['nullable', 'string'],
             'settlement_status' => ['nullable', Rule::in(self::SETTLEMENT_STATUSES)],
             'settlement_date' => ['nullable', 'date', 'after_or_equal:date_filed'],
             'settlement_agreement' => ['nullable', 'string'],

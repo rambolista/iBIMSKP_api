@@ -172,6 +172,15 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::apiResource('/barangay-services/requests', ServiceRequestController::class)->parameters(['requests' => 'serviceRequest']);
     Route::get('/barangay-services/requests/{serviceRequest}/document-preview', [ServiceRequestController::class, 'documentPreview']);
+    Route::post('/barangay-services/requests/{serviceRequest}/verify', [ServiceRequestController::class, 'verify']);
+    Route::post('/barangay-services/requests/{serviceRequest}/validate', [ServiceRequestController::class, 'validateRequirements']);
+    Route::post('/barangay-services/requests/{serviceRequest}/approve', [ServiceRequestController::class, 'approve']);
+    Route::post('/barangay-services/requests/{serviceRequest}/proceed-to-payment', [ServiceRequestController::class, 'proceedToPayment']);
+    Route::post('/barangay-services/requests/{serviceRequest}/proceed-to-printing', [ServiceRequestController::class, 'proceedToPrinting']);
+    Route::post('/barangay-services/requests/{serviceRequest}/record-payment', [ServiceRequestController::class, 'recordPayment']);
+    Route::post('/barangay-services/requests/{serviceRequest}/release', [ServiceRequestController::class, 'release']);
+    Route::post('/barangay-services/requests/{serviceRequest}/reject', [ServiceRequestController::class, 'reject']);
+    Route::post('/barangay-services/requests/{serviceRequest}/cancel', [ServiceRequestController::class, 'cancel']);
     Route::apiResource('/barangay-services/types', ServiceTypeController::class)->parameters(['types' => 'serviceType']);
     Route::apiResource('/barangay-services/document-templates', DocumentTemplateController::class)->parameters(['document-templates' => 'documentTemplate']);
     Route::apiResource('/apps/administration/document-logos', DocumentLogoController::class)->parameters(['document-logos' => 'documentLogo']);
@@ -181,7 +190,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/katarungang-pambarangay/cases/{case}/close', [KatarungangPambarangayCaseController::class, 'close']);
     Route::post('/katarungang-pambarangay/cases/{case}/settlement', [KatarungangPambarangayCaseController::class, 'saveSettlement']);
     Route::post('/katarungang-pambarangay/cases/{case}/settlement/approve', [KatarungangPambarangayCaseController::class, 'approveSettlement']);
+    Route::post('/katarungang-pambarangay/cases/{case}/documents/{documentTemplate}/print', [KatarungangPambarangayCaseController::class, 'markDocumentPrinted']);
     Route::apiResource('/katarungang-pambarangay/cases', KatarungangPambarangayCaseController::class)->parameters(['cases' => 'case']);
+    Route::delete('/katarungang-pambarangay/hearings/{hearing}/force', [KatarungangPambarangayHearingController::class, 'forceDestroy']);
     Route::apiResource('/katarungang-pambarangay/hearings', KatarungangPambarangayHearingController::class)->parameters(['hearings' => 'hearing']);
     Route::apiResource('/katarungang-pambarangay/lupon-members', KatarungangPambarangayLuponMemberController::class)->parameters(['lupon-members' => 'luponMember']);
     Route::apiResource('/katarungang-pambarangay/pangkat', KatarungangPambarangayPangkatController::class)->parameters(['pangkat' => 'pangkat']);
