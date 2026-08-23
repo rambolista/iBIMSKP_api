@@ -27,7 +27,9 @@ class MenuController extends Controller
                 return response()->json(['message' => 'Forbidden.'], 403);
             }
 
-            return response()->json($query->where('is_hidden', false)->get());
+            // The menu-administration screen must show hidden menus too, otherwise
+            // there is no way to find and un-hide one again once it's hidden.
+            return response()->json($query->get());
         }
 
         $allMenus = $query->where('is_hidden', false)->get();

@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\BarangayServices;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
+use App\Models\BarangayOfficial;
+use App\Models\BarangaySetting;
 use App\Models\DocumentLogo;
 use App\Models\ProjectSetting;
 use App\Models\ServiceRequest;
@@ -392,6 +394,11 @@ HTML;
         $purok = $resident?->purok;
         $serviceType = $serviceRequest->serviceType;
         $project = ProjectSetting::query()->first();
+        $barangay = BarangaySetting::query()->first();
+        $punongBarangay = BarangayOfficial::query()
+            ->where('position', 'Punong Barangay')
+            ->whereNull('archived_at')
+            ->first();
 
         $variables = [
             'request_number' => $serviceRequest->request_number,
@@ -435,6 +442,13 @@ HTML;
             'remarks' => $serviceRequest->remarks,
             'project_name' => $project?->name,
             'project_year' => $project?->year,
+            'barangay_name' => $barangay?->name,
+            'barangay_address' => $barangay?->address,
+            'barangay_city_municipality' => $barangay?->city_municipality,
+            'barangay_province' => $barangay?->province,
+            'barangay_contact_number' => $barangay?->phone,
+            'barangay_email' => $barangay?->email,
+            'punong_barangay_name' => $punongBarangay?->name,
             'today' => now()->format('Y-m-d'),
         ];
 

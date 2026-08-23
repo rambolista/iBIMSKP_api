@@ -6,8 +6,11 @@ use App\Http\Controllers\Api\AccessManagement\MenuController;
 use App\Http\Controllers\Api\AccessManagement\MenuIconController;
 use App\Http\Controllers\Api\AccessManagement\RoleController;
 use App\Http\Controllers\Api\AccessManagement\UserController;
+use App\Http\Controllers\Api\Administration\BarangayOfficialController;
+use App\Http\Controllers\Api\Administration\BarangaySettingController;
 use App\Http\Controllers\Api\Administration\DocumentLogoController;
 use App\Http\Controllers\Api\Administration\DropdownSettingController;
+use App\Http\Controllers\Api\Administration\IdTemplateController;
 use App\Http\Controllers\Api\Administration\NatureOfCaseController;
 use App\Http\Controllers\Api\AuditHistoryController;
 use App\Http\Controllers\Api\Auth\ChangePasswordController;
@@ -16,7 +19,6 @@ use App\Http\Controllers\Api\Auth\ForgotPasswordController;
 use App\Http\Controllers\Api\Auth\LoginController;
 use App\Http\Controllers\Api\Auth\LogoutController;
 use App\Http\Controllers\Api\Auth\PinController;
-use App\Http\Controllers\Api\Auth\RegisterController;
 use App\Http\Controllers\Api\Auth\ResetPasswordController;
 use App\Http\Controllers\Api\Auth\TwoFactorChallengeController;
 use App\Http\Controllers\Api\Auth\TwoFactorSettingsController;
@@ -56,7 +58,6 @@ use Illuminate\Support\Facades\Route;
 // ── Public auth routes (no token required) ─────────────────────────────────
 Route::prefix('auth')->group(function () {
     Route::post('/login', LoginController::class);
-    Route::post('/register', RegisterController::class);
     Route::post('/forgot-password', ForgotPasswordController::class);
     Route::post('/reset-password', ResetPasswordController::class);
     Route::post('/2fa/challenge/verify', TwoFactorChallengeController::class)->middleware('throttle:10,1');
@@ -71,9 +72,12 @@ Route::prefix('customer')->group(function () {
 });
 
 Route::get('/project-settings', [ProjectSettingController::class, 'show']);
+Route::get('/barangay-settings', [BarangaySettingController::class, 'show']);
 Route::get('/layout-settings', [LayoutSettingController::class, 'show']);
 Route::get('/landing-page', [PublicLandingPageController::class, 'show']);
 Route::get('/service-request-verification/{verificationCode}', [ServiceRequestController::class, 'verifyDocument']);
+Route::get('/barangay-id-verification/{verificationCode}', [BarangayIdController::class, 'verifyDocument']);
+Route::get('/id-templates/current', [IdTemplateController::class, 'current']);
 
 // ── Protected routes (valid Sanctum token required) ────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
@@ -111,6 +115,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/layout-settings/theme', [LayoutSettingController::class, 'updateTheme']);
     Route::put('/user/theme-preference', [ThemePreferenceController::class, 'update']);
     Route::put('/project-settings', [ProjectSettingController::class, 'update']);
+    Route::put('/barangay-settings', [BarangaySettingController::class, 'update']);
     Route::get('/customer-menus', [CustomerMenuController::class, 'index']);
 
     Route::prefix('customer')->group(function () {
@@ -184,8 +189,26 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('/barangay-services/types', ServiceTypeController::class)->parameters(['types' => 'serviceType']);
     Route::apiResource('/barangay-services/document-templates', DocumentTemplateController::class)->parameters(['document-templates' => 'documentTemplate']);
     Route::apiResource('/apps/administration/document-logos', DocumentLogoController::class)->parameters(['document-logos' => 'documentLogo']);
+    Route::apiResource('/apps/administration/barangay-officials', BarangayOfficialController::class)->parameters(['barangay-officials' => 'barangayOfficial']);
     Route::apiResource('/apps/administration/dropdown-settings/nature-of-case', NatureOfCaseController::class)->parameters(['nature-of-case' => 'natureOfCase']);
+    Route::post('/barangay-id/{barangayId}/verify', [BarangayIdController::class, 'verify']);
+    Route::post('/barangay-id/{barangayId}/approve', [BarangayIdController::class, 'approve']);
+    Route::post('/barangay-id/{barangayId}/proceed-to-payment', [BarangayIdController::class, 'proceedToPayment']);
+    Route::post('/barangay-id/{barangayId}/proceed-to-printing', [BarangayIdController::class, 'proceedToPrinting']);
+    Route::post('/barangay-id/{barangayId}/record-payment', [BarangayIdController::class, 'recordPayment']);
+    Route::post('/barangay-id/{barangayId}/release', [BarangayIdController::class, 'release']);
+    Route::post('/barangay-id/{barangayId}/report-lost', [BarangayIdController::class, 'reportLost']);
+    Route::post('/barangay-id/{barangayId}/process-replacement', [BarangayIdController::class, 'processReplacement']);
+    Route::post('/barangay-id/{barangayId}/cancel', [BarangayIdController::class, 'cancel']);
     Route::apiResource('/barangay-id', BarangayIdController::class)->parameters(['barangay-id' => 'barangayId']);
+    Route::apiResource('/apps/administration/id-templates', IdTemplateController::class)->parameters(['id-templates' => 'idTemplate']);
+    Route::post('/blotter/{blotter}/investigate', [BlotterController::class, 'investigate']);
+    Route::post('/blotter/{blotter}/refer', [BlotterController::class, 'refer']);
+    Route::post('/blotter/{blotter}/resolve', [BlotterController::class, 'resolve']);
+    Route::post('/blotter/{blotter}/close', [BlotterController::class, 'close']);
+    Route::post('/blotter/{blotter}/reopen', [BlotterController::class, 'reopen']);
+    Route::post('/blotter/{blotter}/attachments', [BlotterController::class, 'addAttachments']);
+    Route::post('/blotter/{blotter}/notes', [BlotterController::class, 'addNote']);
     Route::apiResource('/blotter', BlotterController::class)->parameters(['blotter' => 'blotter']);
     Route::post('/katarungang-pambarangay/cases/{case}/close', [KatarungangPambarangayCaseController::class, 'close']);
     Route::post('/katarungang-pambarangay/cases/{case}/settlement', [KatarungangPambarangayCaseController::class, 'saveSettlement']);

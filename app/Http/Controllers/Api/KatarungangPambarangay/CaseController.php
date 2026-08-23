@@ -243,7 +243,7 @@ class CaseController extends Controller
         $highestSequence = LuponCase::query()
             ->whereNotNull('case_number')
             ->pluck('case_number')
-            ->map(function ($value): ?int {
+            ->map(function ($value) use ($year): ?int {
                 if (! is_string($value) && ! is_numeric($value)) {
                     return null;
                 }
@@ -279,7 +279,7 @@ class CaseController extends Controller
             'complainant_name' => ['nullable', 'string', 'max:255'],
             'respondent_resident_id' => ['nullable', 'integer', Rule::exists('residents', 'id')->where('status', 'active')],
             'respondent_name' => ['nullable', 'string', 'max:255'],
-            'nature' => ['required', Rule::in($this->natureOptions())],
+            'nature' => ['required', 'string', 'max:150'],
             'assigned_lupon' => ['nullable', 'string', 'max:255'],
             'status' => ['nullable', Rule::in(self::CASE_STATUSES)],
             'next_hearing_at' => ['nullable', 'date', 'after_or_equal:date_filed'],

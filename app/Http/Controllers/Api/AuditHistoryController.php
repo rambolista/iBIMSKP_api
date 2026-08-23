@@ -5,11 +5,13 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\BarangayId;
+use App\Models\BarangayOfficial;
 use App\Models\Blotter;
 use App\Models\Customer;
 use App\Models\DocumentTemplate;
 use App\Models\DropdownSetting;
 use App\Models\Household;
+use App\Models\IdTemplate;
 use App\Models\LuponCase;
 use App\Models\LuponHearing;
 use App\Models\LuponMember;
@@ -39,6 +41,8 @@ class AuditHistoryController extends Controller
         'katarungangLuponMembers' => ['model' => LuponMember::class, 'menu' => '/katarungang-pambarangay/lupon-members'],
         'katarungangPangkats' => ['model' => LuponPangkat::class, 'menu' => '/katarungang-pambarangay/pangkat'],
         'customers' => ['model' => Customer::class, 'menu' => '/apps/customers'],
+        'barangayOfficials' => ['model' => BarangayOfficial::class, 'menu' => '/apps/administration/barangay-officials'],
+        'idTemplates' => ['model' => IdTemplate::class, 'menu' => '/apps/administration/id-templates'],
     ];
 
     public function index(Request $request, string $resource, int $recordId): JsonResponse

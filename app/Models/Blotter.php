@@ -17,13 +17,23 @@ class Blotter extends Model
         'incident_date',
         'incident_time',
         'resident_id',
+        'incident_type',
         'complainant_name',
         'respondent_name',
+        'respondent_resident_id',
         'location',
         'narrative',
+        'witnesses',
         'action_taken',
         'evidence_paths',
+        'responding_official',
+        'investigation_started_at',
+        'referred_case_id',
+        'referred_by',
+        'referred_reason',
+        'referred_at',
         'settled_at',
+        'closed_at',
         'status',
         'remarks',
         'archived_at',
@@ -35,7 +45,10 @@ class Blotter extends Model
         return [
             'incident_date' => 'date',
             'evidence_paths' => 'array',
+            'investigation_started_at' => 'datetime',
+            'referred_at' => 'datetime',
             'settled_at' => 'date',
+            'closed_at' => 'datetime',
             'archived_at' => 'datetime',
         ];
     }
@@ -43,6 +56,21 @@ class Blotter extends Model
     public function resident(): BelongsTo
     {
         return $this->belongsTo(Resident::class);
+    }
+
+    public function respondentResident(): BelongsTo
+    {
+        return $this->belongsTo(Resident::class, 'respondent_resident_id');
+    }
+
+    public function referredCase(): BelongsTo
+    {
+        return $this->belongsTo(LuponCase::class, 'referred_case_id');
+    }
+
+    public function logs(): HasMany
+    {
+        return $this->hasMany(BlotterLog::class)->orderByDesc('created_at')->orderByDesc('id');
     }
 
     public function relatedCases(): HasMany
@@ -78,5 +106,19 @@ class Blotter extends Model
             ->all();
 
         $this->forceFill(['evidence_paths' => $nextPaths])->save();
+    }
+
+    public function appendEvidencePhotos(array $files): void
+    {
+        $existingPaths = collect($this->evidence_paths ?? [])
+            ->filter(fn ($path) => is_string($path) && $path !== '')
+            ->values();
+
+        $newPaths = collect($files)
+            ->filter(fn ($file) => $file instanceof UploadedFile)
+            ->map(fn (UploadedFile $file) => $file->store('blotter-evidence', 'public'))
+            ->values();
+
+        $this->forceFill(['evidence_paths' => $existingPaths->concat($newPaths)->all()])->save();
     }
 }

@@ -16,46 +16,6 @@ class AuthSecurityTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_registration_accepts_profile_fields_and_derives_name(): void
-    {
-        $response = $this->postJson('/api/auth/register', [
-            'first_name' => '  Ada ',
-            'middle_name' => ' Byron ',
-            'last_name' => ' Lovelace ',
-            'email' => 'ada@example.test',
-            'mobile_number' => ' 09123456789 ',
-            'address' => ' London ',
-            'password' => 'SecurePassword1!',
-            'password_confirmation' => 'SecurePassword1!',
-        ]);
-
-        $response
-            ->assertCreated()
-            ->assertJsonPath('user.name', 'Ada Byron Lovelace')
-            ->assertJsonPath('user.first_name', 'Ada')
-            ->assertJsonPath('user.middle_name', 'Byron')
-            ->assertJsonPath('user.last_name', 'Lovelace')
-            ->assertJsonPath('user.mobile_number', '09123456789')
-            ->assertJsonMissingPath('user.password')
-            ->assertJsonMissingPath('user.pin')
-            ->assertJsonMissingPath('user.two_factor_secret');
-
-        $this->assertDatabaseHas('users', [
-            'name' => 'Ada Byron Lovelace',
-            'address' => 'London',
-        ]);
-    }
-
-    public function test_registration_validates_names_email_and_password_confirmation(): void
-    {
-        $this->postJson('/api/auth/register', [
-            'email' => 'not-an-email',
-            'password' => 'SecurePassword1!',
-        ])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors(['first_name', 'last_name', 'email', 'password']);
-    }
-
     public function test_suspended_users_are_rejected_and_inactive_users_receive_status(): void
     {
         $suspended = User::factory()->create([
