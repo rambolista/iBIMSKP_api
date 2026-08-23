@@ -202,7 +202,7 @@ class BlotterController extends Controller
 
     public function close(Request $request, Blotter $blotter): JsonResponse
     {
-        $this->authorizeAction($request, 'can_edit');
+        $this->authorizeAction($request, 'can_cancel');
         abort_unless(in_array($blotter->status, ['new', 'investigation', 'referred', 'resolved'], true), 422, 'This entry cannot be closed from its current status.');
 
         $data = $request->validate([
@@ -221,7 +221,7 @@ class BlotterController extends Controller
 
     public function reopen(Request $request, Blotter $blotter): JsonResponse
     {
-        $this->authorizeAction($request, 'can_edit');
+        $this->authorizeAction($request, 'can_reverse');
         abort_unless($blotter->status === 'closed', 422, 'Only closed entries can be reopened.');
 
         $data = $request->validate([

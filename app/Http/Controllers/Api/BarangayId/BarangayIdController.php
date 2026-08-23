@@ -7,6 +7,8 @@ use App\Models\AuditLog;
 use App\Models\BarangayId;
 use App\Models\BarangayIdLog;
 use App\Models\IdTemplate;
+use App\Models\PaymentTransaction;
+use App\Models\PaymentTransactionLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -102,7 +104,7 @@ class BarangayIdController extends Controller
 
     public function approve(Request $request, BarangayId $barangayId): JsonResponse
     {
-        $this->authorizeAction($request, 'can_edit');
+        $this->authorizeAction($request, 'can_approve');
         $this->assertStatus($barangayId, ['verification']);
 
         $idNumber = $this->generateIdNumber();
@@ -127,6 +129,11 @@ class BarangayIdController extends Controller
 
         $barangayId->update(['status' => 'payment']);
         $this->addLog($barangayId, 'Sent to payment', 'Awaiting payment before the card can be printed.', $request->user());
+        $this->recordPaymentTransaction($barangayId, [
+            'status' => 'pending',
+            'amount' => $this->currentFee(),
+            'remarks' => 'Awaiting collection at the cashier.',
+        ], $request);
 
         return response()->json($this->loadBarangayId($barangayId->fresh()));
     }
@@ -139,6 +146,13 @@ class BarangayIdController extends Controller
 
         $barangayId->update(['status' => 'printing']);
         $this->addLog($barangayId, 'Sent to printing', 'Card layout generated with QR code and queued for printing.', $request->user());
+        $this->recordPaymentTransaction($barangayId, [
+            'status' => 'paid',
+            'amount' => 0,
+            'or_number' => null,
+            'paid_at' => now()->toDateString(),
+            'remarks' => 'No fee applied.',
+        ], $request);
 
         return response()->json($this->loadBarangayId($barangayId->fresh()));
     }
@@ -160,8 +174,49 @@ class BarangayIdController extends Controller
             'paid_at' => $data['paid_at'],
         ]);
         $this->addLog($barangayId, 'Payment recorded', "OR #{$data['or_number']} recorded. Card layout generated with QR code and queued for printing.", $request->user());
+        $this->recordPaymentTransaction($barangayId, [
+            'status' => 'paid',
+            'amount' => $this->currentFee(),
+            'or_number' => $data['or_number'],
+            'paid_at' => $data['paid_at'],
+        ], $request);
 
         return response()->json($this->loadBarangayId($barangayId->fresh()));
+    }
+
+    private function recordPaymentTransaction(BarangayId $barangayId, array $attributes, Request $request): void
+    {
+        $becomingPaid = ($attributes['status'] ?? null) === 'paid';
+
+        $pending = PaymentTransaction::query()
+            ->where('source_module', 'barangay_id')
+            ->where('source_id', $barangayId->id)
+            ->where('status', 'pending')
+            ->latest('id')
+            ->first();
+
+        if ($pending && $becomingPaid) {
+            $pending->update([...$attributes, 'processed_by_user_id' => $request->user()?->id]);
+            PaymentTransactionLog::create([
+                'payment_transaction_id' => $pending->id,
+                'label' => 'Payment collected',
+                'message' => '₱'.number_format($attributes['amount'] ?? $pending->amount, 2).' collected. OR No. '.($attributes['or_number'] ?? $pending->or_number).' issued.',
+                'actor_id' => $request->user()?->id,
+            ]);
+
+            return;
+        }
+
+        PaymentTransaction::create([
+            'transaction_number' => PaymentTransaction::generateTransactionNumber(),
+            'resident_id' => $barangayId->resident_id,
+            'transaction_type' => 'Barangay ID',
+            'processed_by_user_id' => $becomingPaid ? $request->user()?->id : null,
+            'source_module' => 'barangay_id',
+            'source_id' => $barangayId->id,
+            'source_ref' => $barangayId->id_number,
+            ...$attributes,
+        ]);
     }
 
     public function release(Request $request, BarangayId $barangayId): JsonResponse
@@ -247,7 +302,7 @@ class BarangayIdController extends Controller
 
     public function cancel(Request $request, BarangayId $barangayId): JsonResponse
     {
-        $this->authorizeAction($request, 'can_edit');
+        $this->authorizeAction($request, 'can_cancel');
         $this->assertStatus($barangayId, ['application', 'verification']);
 
         $data = $request->validate(['reason' => ['nullable', 'string']]);

@@ -10,6 +10,7 @@ use App\Models\Blotter;
 use App\Models\Customer;
 use App\Models\DocumentTemplate;
 use App\Models\DropdownSetting;
+use App\Models\Event;
 use App\Models\Household;
 use App\Models\IdTemplate;
 use App\Models\LuponCase;
@@ -43,6 +44,7 @@ class AuditHistoryController extends Controller
         'customers' => ['model' => Customer::class, 'menu' => '/apps/customers'],
         'barangayOfficials' => ['model' => BarangayOfficial::class, 'menu' => '/apps/administration/barangay-officials'],
         'idTemplates' => ['model' => IdTemplate::class, 'menu' => '/apps/administration/id-templates'],
+        'events' => ['model' => Event::class, 'menu' => '/events'],
     ];
 
     public function index(Request $request, string $resource, int $recordId): JsonResponse

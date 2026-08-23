@@ -23,6 +23,7 @@ class LuponCase extends Model
         'respondent_resident_id',
         'respondent_name',
         'nature',
+        'nature_other',
         'assigned_lupon',
         'status',
         'next_hearing_at',
@@ -153,5 +154,22 @@ class LuponCase extends Model
             ->all();
 
         $this->forceFill(['attachment_evidence_paths' => $nextFiles])->save();
+    }
+
+    public function appendAttachmentEvidenceFiles(array $files): void
+    {
+        $existingFiles = collect($this->attachment_evidence_paths ?? [])->values();
+
+        $newFiles = collect($files)
+            ->filter(fn ($file) => $file instanceof UploadedFile)
+            ->map(fn (UploadedFile $file) => [
+                'path' => $file->store('lupon-case-attachments', 'public'),
+                'name' => $file->getClientOriginalName(),
+                'mime' => $file->getClientMimeType(),
+                'size' => $file->getSize(),
+            ])
+            ->values();
+
+        $this->forceFill(['attachment_evidence_paths' => $existingFiles->concat($newFiles)->all()])->save();
     }
 }

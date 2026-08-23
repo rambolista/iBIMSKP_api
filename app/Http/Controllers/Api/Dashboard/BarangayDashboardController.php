@@ -17,8 +17,8 @@ use Illuminate\Validation\Rule;
 class BarangayDashboardController extends Controller
 {
     private const MENU_URL = '/dashboard/barangay';
-    private const SERVICE_REQUEST_STATUSES = ['pending', 'processing', 'released', 'rejected'];
-    private const BLOTTER_STATUSES = ['open', 'under_mediation', 'resolved', 'dismissed'];
+    private const SERVICE_REQUEST_STATUSES = ['pending', 'validation', 'approval', 'approved', 'payment', 'processing', 'released', 'rejected', 'cancelled'];
+    private const BLOTTER_STATUSES = ['new', 'investigation', 'referred', 'resolved', 'closed'];
     private const CASE_STATUSES = ['filed', 'for_mediation', 'for_conciliation', 'for_pangkat', 'settled', 'cfa_issued', 'closed'];
     private const PERIODS = ['all', 'week', 'month', 'year'];
 

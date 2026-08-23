@@ -18,6 +18,7 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withSchedule(function (Schedule $schedule): void {
         $schedule->command('hearings:notify-upcoming')->dailyAt('07:00');
+        $schedule->command('events:notify-upcoming')->dailyAt('07:30');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

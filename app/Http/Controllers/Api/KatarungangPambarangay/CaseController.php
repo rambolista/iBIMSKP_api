@@ -110,6 +110,22 @@ class CaseController extends Controller
         return response()->json($this->loadCase($case->fresh()));
     }
 
+    public function addAttachments(Request $request, LuponCase $case): JsonResponse
+    {
+        $this->authorizeAction($request, 'can_edit');
+
+        $request->validate([
+            'attachment_evidence_files' => ['required', 'array', 'min:1'],
+            'attachment_evidence_files.*' => ['file', 'max:10240', 'mimes:jpg,jpeg,png,webp,gif,pdf,doc,docx,xls,xlsx,ppt,pptx,txt'],
+        ]);
+
+        $before = $case->getAttributes();
+        $case->appendAttachmentEvidenceFiles($request->file('attachment_evidence_files'));
+        AuditLog::recordUpdated($request->user(), $case->fresh(), $before, ['attachment_evidence_paths']);
+
+        return response()->json($this->loadCase($case->fresh()));
+    }
+
     public function destroy(Request $request, LuponCase $case): JsonResponse
     {
         $this->authorizeAction($request, 'can_delete');
@@ -161,7 +177,7 @@ class CaseController extends Controller
 
     public function approveSettlement(Request $request, LuponCase $case): JsonResponse
     {
-        $this->authorizeAction($request, 'can_execute');
+        $this->authorizeAction($request, 'can_approve');
 
         if ($case->status === 'closed') {
             return response()->json([
@@ -280,6 +296,7 @@ class CaseController extends Controller
             'respondent_resident_id' => ['nullable', 'integer', Rule::exists('residents', 'id')->where('status', 'active')],
             'respondent_name' => ['nullable', 'string', 'max:255'],
             'nature' => ['required', 'string', 'max:150'],
+            'nature_other' => ['nullable', 'string', 'max:255'],
             'assigned_lupon' => ['nullable', 'string', 'max:255'],
             'status' => ['nullable', Rule::in(self::CASE_STATUSES)],
             'next_hearing_at' => ['nullable', 'date', 'after_or_equal:date_filed'],

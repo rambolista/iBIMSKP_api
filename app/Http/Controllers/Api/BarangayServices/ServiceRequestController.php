@@ -7,6 +7,8 @@ use App\Models\AuditLog;
 use App\Models\BarangayOfficial;
 use App\Models\BarangaySetting;
 use App\Models\DocumentLogo;
+use App\Models\PaymentTransaction;
+use App\Models\PaymentTransactionLog;
 use App\Models\ProjectSetting;
 use App\Models\ServiceRequest;
 use App\Models\ServiceRequestLog;
@@ -135,7 +137,7 @@ class ServiceRequestController extends Controller
 
     public function approve(Request $request, ServiceRequest $serviceRequest): JsonResponse
     {
-        $this->authorizeAction($request, 'can_edit');
+        $this->authorizeAction($request, 'can_approve');
         $this->assertStatus($serviceRequest, ['approval']);
         $data = $request->validate(['signatory' => ['required', 'string', 'max:255']]);
 
@@ -157,6 +159,11 @@ class ServiceRequestController extends Controller
 
         $serviceRequest->update(['status' => 'payment']);
         $this->addLog($serviceRequest, 'Awaiting payment', 'Resident directed to pay ₱'.number_format($fee, 2).' at the cashier.', $request->user());
+        $this->recordPaymentTransaction($serviceRequest, [
+            'status' => 'pending',
+            'amount' => $fee,
+            'remarks' => 'Awaiting collection at the cashier.',
+        ], $request);
 
         return response()->json($this->loadRequest($serviceRequest->fresh()));
     }
@@ -170,6 +177,13 @@ class ServiceRequestController extends Controller
 
         $serviceRequest->update(['status' => 'processing', 'payment_status' => 'waived']);
         $this->addLog($serviceRequest, 'Document generated', 'No fee due. Document generated and ready to print.', $request->user());
+        $this->recordPaymentTransaction($serviceRequest, [
+            'status' => 'paid',
+            'amount' => 0,
+            'or_number' => null,
+            'paid_at' => now()->toDateString(),
+            'remarks' => 'No fee applied.',
+        ], $request);
 
         return response()->json($this->loadRequest($serviceRequest->fresh()));
     }
@@ -193,8 +207,49 @@ class ServiceRequestController extends Controller
         $fee = (float) ($serviceRequest->serviceType?->fee ?? 0);
         $message = '₱'.number_format($fee, 2)." paid, OR No. {$data['or_number']}. Document generated and ready to print.";
         $this->addLog($serviceRequest, 'Payment recorded', $message, $request->user());
+        $this->recordPaymentTransaction($serviceRequest, [
+            'status' => 'paid',
+            'amount' => $fee,
+            'or_number' => $data['or_number'],
+            'paid_at' => $data['paid_at'],
+        ], $request);
 
         return response()->json($this->loadRequest($serviceRequest->fresh()));
+    }
+
+    private function recordPaymentTransaction(ServiceRequest $serviceRequest, array $attributes, Request $request): void
+    {
+        $becomingPaid = ($attributes['status'] ?? null) === 'paid';
+
+        $pending = PaymentTransaction::query()
+            ->where('source_module', 'service_request')
+            ->where('source_id', $serviceRequest->id)
+            ->where('status', 'pending')
+            ->latest('id')
+            ->first();
+
+        if ($pending && $becomingPaid) {
+            $pending->update([...$attributes, 'processed_by_user_id' => $request->user()?->id]);
+            PaymentTransactionLog::create([
+                'payment_transaction_id' => $pending->id,
+                'label' => 'Payment collected',
+                'message' => '₱'.number_format($attributes['amount'] ?? $pending->amount, 2).' collected. OR No. '.($attributes['or_number'] ?? $pending->or_number).' issued.',
+                'actor_id' => $request->user()?->id,
+            ]);
+
+            return;
+        }
+
+        PaymentTransaction::create([
+            'transaction_number' => PaymentTransaction::generateTransactionNumber(),
+            'resident_id' => $serviceRequest->resident_id,
+            'transaction_type' => $serviceRequest->serviceType?->name ?? 'Barangay Service',
+            'processed_by_user_id' => $becomingPaid ? $request->user()?->id : null,
+            'source_module' => 'service_request',
+            'source_id' => $serviceRequest->id,
+            'source_ref' => $serviceRequest->request_number,
+            ...$attributes,
+        ]);
     }
 
     public function release(Request $request, ServiceRequest $serviceRequest): JsonResponse
@@ -217,7 +272,7 @@ class ServiceRequestController extends Controller
 
     public function reject(Request $request, ServiceRequest $serviceRequest): JsonResponse
     {
-        $this->authorizeAction($request, 'can_edit');
+        $this->authorizeAction($request, 'can_cancel');
         $this->assertStatus($serviceRequest, self::REJECTABLE_STATUSES);
         $data = $request->validate(['reject_reason' => ['required', 'string']]);
 
@@ -229,7 +284,7 @@ class ServiceRequestController extends Controller
 
     public function cancel(Request $request, ServiceRequest $serviceRequest): JsonResponse
     {
-        $this->authorizeAction($request, 'can_edit');
+        $this->authorizeAction($request, 'can_cancel');
         $this->assertStatus($serviceRequest, self::CANCELLABLE_STATUSES);
         $data = $request->validate(['cancel_reason' => ['nullable', 'string']]);
         $reason = ($data['cancel_reason'] ?? null) ?: 'No reason provided.';

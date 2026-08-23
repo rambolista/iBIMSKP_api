@@ -15,6 +15,7 @@ class DocumentTemplate extends Model
         'variables',
         'logo_placements',
         'document_type',
+        'is_default',
         'kp_stage',
         'paper_size',
         'status',
@@ -27,6 +28,7 @@ class DocumentTemplate extends Model
     protected $casts = [
         'variables' => 'array',
         'logo_placements' => 'array',
+        'is_default' => 'boolean',
         'archived_at' => 'datetime',
     ];
 

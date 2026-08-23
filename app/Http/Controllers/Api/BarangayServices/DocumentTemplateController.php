@@ -9,6 +9,7 @@ use App\Models\DocumentTemplate;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Validator;
 
@@ -18,7 +19,7 @@ class DocumentTemplateController extends Controller
     private const DEFAULT_PAPER_SIZE = 'a4';
     private const DEFAULT_KP_PAPER_SIZE = 'custom';
     private const DEFAULT_DOCUMENT_TYPE = 'certificate';
-    private const DOCUMENT_TYPES = ['certificate', 'kp_forms'];
+    private const DOCUMENT_TYPES = ['certificate', 'kp_forms', 'report'];
     private const KP_STAGES = ['filed', 'mediation', 'pangkat', 'settled', 'cfa'];
     private const PAPER_SIZES = ['a4', 'letter', 'custom', 'legal'];
     private const LOGO_POSITIONS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right', 'entire-template'];
@@ -59,7 +60,14 @@ class DocumentTemplateController extends Controller
         $data = $this->validated($request);
         $data['created_by'] = $request->user()->id;
         $data['updated_by'] = $request->user()->id;
-        $template = DocumentTemplate::create($data);
+
+        $template = DB::transaction(function () use ($data) {
+            if ($data['is_default'] ?? false) {
+                DocumentTemplate::query()->where('document_type', $data['document_type'])->update(['is_default' => false]);
+            }
+
+            return DocumentTemplate::create($data);
+        });
         AuditLog::recordCreated($request->user(), $template->fresh(), array_keys($data));
 
         return response()->json($this->withResolvedLogoPlacements($template->fresh()), 201);
@@ -79,7 +87,17 @@ class DocumentTemplateController extends Controller
         $before = $documentTemplate->getAttributes();
         $data = $this->validated($request, $documentTemplate);
         $data['updated_by'] = $request->user()->id;
-        $documentTemplate->update($data);
+
+        DB::transaction(function () use ($data, $documentTemplate): void {
+            if ($data['is_default'] ?? false) {
+                DocumentTemplate::query()
+                    ->where('document_type', $data['document_type'])
+                    ->whereKeyNot($documentTemplate->id)
+                    ->update(['is_default' => false]);
+            }
+
+            $documentTemplate->update($data);
+        });
         AuditLog::recordUpdated($request->user(), $documentTemplate->fresh(), $before, array_keys($data));
 
         return response()->json($this->withResolvedLogoPlacements($documentTemplate->fresh()));
@@ -120,6 +138,7 @@ class DocumentTemplateController extends Controller
             'logo_placements.*.position' => ['required_with:logo_placements', Rule::in(self::LOGO_POSITIONS)],
             'logo_placements.*.behind_content' => ['nullable', 'boolean'],
             'document_type' => ['nullable', Rule::in(self::DOCUMENT_TYPES)],
+            'is_default' => ['nullable', 'boolean'],
             'kp_stage' => ['nullable', Rule::in(self::KP_STAGES)],
             'paper_size' => ['nullable', Rule::in(self::PAPER_SIZES)],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
@@ -153,6 +172,7 @@ class DocumentTemplateController extends Controller
         $data['paper_size'] = in_array($data['paper_size'] ?? null, self::PAPER_SIZES, true)
             ? $data['paper_size']
             : $defaultPaperSize;
+        $data['is_default'] = (bool) ($data['is_default'] ?? false);
         $data['logo_placements'] = collect($data['logo_placements'] ?? [])
             ->filter(fn ($item) => is_array($item))
             ->map(fn (array $item) => [
