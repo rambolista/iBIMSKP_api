@@ -12,12 +12,18 @@
     .summary-table { width: auto; margin-bottom: 12px; }
     .summary-table td:first-child { font-weight: bold; }
     .note { color: #b45309; font-size: 9px; margin-top: 8px; }
-    .report-letterhead { margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #333; }
-    .report-letterhead-logos { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-    .report-letterhead-logo-slot { display: flex; gap: 4px; }
-    .report-letterhead-logo-center { flex: 1; justify-content: center; }
-    .report-letterhead-logo-slot img { height: 48px; width: auto; }
-    .report-letterhead-body { text-align: center; }
+    .report-letterhead { position: relative; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #333; }
+    .report-letterhead-watermark { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 0; text-align: center; opacity: 0.15; }
+    .report-letterhead-watermark img { max-width: 55%; max-height: 100%; object-fit: contain; }
+    .report-letterhead-content { position: relative; z-index: 1; }
+    .report-letterhead-logo-row { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+    .report-letterhead-logo-row td { border: none; padding: 0; vertical-align: middle; }
+    .report-letterhead-logo-row-bg { position: absolute; top: 0; left: 0; right: 0; z-index: 0; margin-bottom: 0; }
+    .report-letterhead-logo-row-bg-bottom { top: auto; bottom: 0; }
+    .report-letterhead-logo-cell-left { width: 33.33%; text-align: left; }
+    .report-letterhead-logo-cell-center { width: 33.33%; text-align: center; }
+    .report-letterhead-logo-cell-right { width: 33.33%; text-align: right; }
+    .report-letterhead-logo-row img { height: 48px; width: auto; }
     .report-letterhead-body p { margin: 2px 0; }
 </style>
 </head>

@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Storage;
 
 class ReportLetterhead
 {
-    private const LOGO_POSITIONS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+    private const CORNER_POSITIONS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'];
 
     public static function render(?DocumentTemplate $template, string $reportTitle, Request $request): string
     {
@@ -20,11 +20,13 @@ class ReportLetterhead
         }
 
         $body = self::substituteVariables($template->content_html, self::buildVariables($reportTitle, $request));
-        $logosByPosition = self::resolveLogos($template->logo_placements ?? []);
+        $logos = self::resolveLogos($template->logo_placements ?? []);
 
         return view('reports.partials.header', [
             'body' => $body,
-            'logosByPosition' => $logosByPosition,
+            'foreground' => $logos['foreground'],
+            'background' => $logos['background'],
+            'fullTemplate' => $logos['fullTemplate'],
         ])->render();
     }
 
@@ -57,6 +59,13 @@ class ReportLetterhead
         return preg_replace('/\{\{\s*[\w.]+\s*\}\}/', '', $html);
     }
 
+    /**
+     * Mirrors ServiceRequestController::renderDocument()'s logo layering:
+     * each placement is either a foreground image (in normal flow, on top)
+     * or — when behind_content is true — a background layer rendered behind
+     * the letterhead text via absolute positioning. 'entire-template' is a
+     * single centered watermark behind the whole letterhead block.
+     */
     private static function resolveLogos(array $placements): array
     {
         $logoIds = collect($placements)
@@ -65,29 +74,42 @@ class ReportLetterhead
             ->map(fn ($id) => (int) $id)
             ->unique();
 
+        $result = ['foreground' => [], 'background' => [], 'fullTemplate' => null];
+
         if ($logoIds->isEmpty()) {
-            return [];
+            return $result;
         }
 
         $logos = DocumentLogo::query()->whereIn('id', $logoIds)->get()->keyBy('id');
 
-        return collect($placements)
-            ->filter(fn ($item) => is_array($item) && in_array($item['position'] ?? '', self::LOGO_POSITIONS, true))
-            ->map(function (array $item) use ($logos) {
-                $logo = $logos->get((int) ($item['document_logo_id'] ?? 0));
-                if (! $logo || ! $logo->photo_path || ! Storage::disk('public')->exists($logo->photo_path)) {
-                    return null;
-                }
+        foreach ($placements as $item) {
+            if (! is_array($item) || empty($item['document_logo_id'])) {
+                continue;
+            }
 
-                return [
-                    'position' => $item['position'],
-                    'data_uri' => self::toDataUri($logo->photo_path),
-                ];
-            })
-            ->filter()
-            ->groupBy('position')
-            ->map(fn ($group) => $group->pluck('data_uri')->all())
-            ->all();
+            $logo = $logos->get((int) $item['document_logo_id']);
+            if (! $logo || ! $logo->photo_path || ! Storage::disk('public')->exists($logo->photo_path)) {
+                continue;
+            }
+
+            $position = (string) ($item['position'] ?? '');
+            $dataUri = self::toDataUri($logo->photo_path);
+
+            if ($position === 'entire-template') {
+                $result['fullTemplate'] = $dataUri;
+                continue;
+            }
+
+            if (! in_array($position, self::CORNER_POSITIONS, true)) {
+                continue;
+            }
+
+            $layer = ! empty($item['behind_content']) ? 'background' : 'foreground';
+            $result[$layer][$position] ??= [];
+            $result[$layer][$position][] = $dataUri;
+        }
+
+        return $result;
     }
 
     private static function toDataUri(string $path): string
